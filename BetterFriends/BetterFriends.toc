@@ -1,0 +1,17 @@
+## Interface: 120001
+## Title: BetterFriends
+## Notes: Track friends made through Mythic+ and send friend requests after key completion.
+## Author: BlackHole
+## Version: 1.0.0
+## SavedVariables: BetterFriendsDB
+## IconTexture: Interface\Icons\Achievement_guildperk_everybodysfriend
+
+Utils.lua
+Data.lua
+Core.lua
+PartyScanner.lua
+BNetLinker.lua
+MythicPlusTracker.lua
+FriendRequestPopup.lua
+FriendsViewer.lua
+MinimapButton.lua
