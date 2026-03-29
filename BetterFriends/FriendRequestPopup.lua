@@ -8,7 +8,7 @@ function ns.FriendRequestPopup:Create()
 
     -- Main frame with backdrop for visibility
     local frame = CreateFrame("Frame", "BetterFriendsPopupFrame", UIParent, "BackdropTemplate")
-    frame:SetSize(320, 280)
+    frame:SetSize(380, 310)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
     frame:SetFrameLevel(100)
@@ -53,9 +53,9 @@ function ns.FriendRequestPopup:Create()
     local rowAnchor = dungeonInfo
     for i = 1, 4 do
         local row = CreateFrame("Frame", nil, frame)
-        row:SetSize(296, 28)
+        row:SetSize(356, 28)
         if i == 1 then
-            row:SetPoint("TOPLEFT", dungeonInfo, "BOTTOMLEFT", -60, -8)
+            row:SetPoint("TOPLEFT", dungeonInfo, "BOTTOMLEFT", -80, -8)
         else
             row:SetPoint("TOP", self.memberRows[i - 1].row, "BOTTOM", 0, -2)
         end
