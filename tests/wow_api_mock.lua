@@ -55,6 +55,8 @@ function FrameMethods:SetFrameLevel(level) self._frameLevel = level end
 function FrameMethods:GetName() return self._name end
 function FrameMethods:SetAlpha(a) self._alpha = a end
 function FrameMethods:GetAlpha() return self._alpha or 1 end
+function FrameMethods:StartMoving() end
+function FrameMethods:StopMovingOrSizing() end
 
 -- FontString mock methods
 function FrameMethods:SetText(text) self._text = text end
@@ -272,6 +274,8 @@ end
 -- ============================================================
 -- Misc WoW globals
 -- ============================================================
+UIParent = CreateFrame("Frame", "UIParent")
+
 function CreateAtlasMarkup(atlas, width, height)
     return "|A:" .. atlas .. ":" .. (width or 0) .. ":" .. (height or 0) .. "|a"
 end

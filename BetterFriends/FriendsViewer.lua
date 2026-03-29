@@ -7,28 +7,36 @@ ns.FriendsViewer.rows = {}
 function ns.FriendsViewer:Create()
     if self.frame then return end
 
-    local frame = CreateFrame("Frame", "BetterFriendsViewerFrame")
+    local frame = CreateFrame("Frame", "BetterFriendsViewerFrame", UIParent, "BackdropTemplate")
     frame:SetSize(600, 450)
     frame:SetPoint("CENTER")
+    frame:SetFrameStrata("HIGH")
     frame:SetMovable(true)
     frame:EnableMouse(true)
     frame:SetClampedToScreen(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", function(f) f:StartMoving() end)
     frame:SetScript("OnDragStop", function(f) f:StopMovingOrSizing() end)
+
+    -- Dark background with border
+    frame:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 8, right = 8, top = 8, bottom = 8 },
+    })
+    frame:SetBackdropColor(0, 0, 0, 0.9)
     frame:Hide()
 
     -- Title text
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOP", frame, "TOP", 0, -10)
-    title:SetText("BetterFriends")
+    title:SetPoint("TOP", frame, "TOP", 0, -16)
+    title:SetText("|cFF00CCFFBetterFriends|r")
     self.titleText = title
 
-    -- Close button
-    local closeBtn = CreateFrame("Button", nil, frame)
-    closeBtn:SetSize(20, 20)
-    closeBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -5, -5)
-    closeBtn:SetText("X")
+    -- Close button (Blizzard template)
+    local closeBtn = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+    closeBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -2, -2)
     closeBtn:SetScript("OnClick", function()
         ns.FriendsViewer:Hide()
     end)
@@ -36,15 +44,16 @@ function ns.FriendsViewer:Create()
 
     -- Footer text
     local footer = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    footer:SetPoint("BOTTOM", frame, "BOTTOM", 0, 10)
+    footer:SetPoint("BOTTOM", frame, "BOTTOM", 0, 14)
+    footer:SetTextColor(0.7, 0.7, 0.7)
     self.footerText = footer
 
     -- Create visible rows (up to 12)
     self.rows = {}
     for i = 1, 12 do
         local row = CreateFrame("Frame", nil, frame)
-        row:SetSize(580, 32)
-        row:SetPoint("TOP", title, "BOTTOM", 0, -10 - (i - 1) * 34)
+        row:SetSize(580, 36)
+        row:SetPoint("TOP", title, "BOTTOM", 0, -10 - (i - 1) * 38)
         row:Hide()
 
         local line1 = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")

@@ -6,27 +6,43 @@ ns.FriendRequestPopup.sentThisSession = {}
 function ns.FriendRequestPopup:Create()
     if self.frame then return end
 
-    local frame = CreateFrame("Frame", "BetterFriendsPopupFrame")
-    frame:SetSize(300, 250)
+    -- Main frame with backdrop for visibility
+    local frame = CreateFrame("Frame", "BetterFriendsPopupFrame", UIParent, "BackdropTemplate")
+    frame:SetSize(320, 280)
     frame:SetPoint("CENTER")
+    frame:SetFrameStrata("DIALOG")
+    frame:SetFrameLevel(100)
+    frame:SetMovable(true)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", frame.StartMoving)
+    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+    frame:SetClampedToScreen(true)
+
+    -- Dark background with border
+    frame:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 8, right = 8, top = 8, bottom = 8 },
+    })
+    frame:SetBackdropColor(0, 0, 0, 0.9)
     frame:Hide()
 
     -- Title text
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOP", frame, "TOP", 0, -10)
-    title:SetText("BetterFriends")
+    title:SetPoint("TOP", frame, "TOP", 0, -16)
+    title:SetText("|cFF00CCFFBetterFriends|r")
     self.titleText = title
 
     -- Dungeon info text
     local dungeonInfo = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    dungeonInfo:SetPoint("TOP", title, "BOTTOM", 0, -5)
+    dungeonInfo:SetPoint("TOP", title, "BOTTOM", 0, -4)
     self.dungeonInfoText = dungeonInfo
 
-    -- Close button
-    local closeBtn = CreateFrame("Button", nil, frame)
-    closeBtn:SetSize(20, 20)
-    closeBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -5, -5)
-    closeBtn:SetText("X")
+    -- Close button (uses built-in Blizzard close button template)
+    local closeBtn = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+    closeBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -2, -2)
     closeBtn:SetScript("OnClick", function()
         ns.FriendRequestPopup:Hide()
     end)
@@ -34,26 +50,39 @@ function ns.FriendRequestPopup:Create()
 
     -- Member rows
     self.memberRows = {}
+    local rowAnchor = dungeonInfo
     for i = 1, 4 do
         local row = CreateFrame("Frame", nil, frame)
-        row:SetSize(280, 24)
-        row:SetPoint("TOP", dungeonInfo, "BOTTOM", 0, -5 - (i - 1) * 28)
+        row:SetSize(296, 28)
+        if i == 1 then
+            row:SetPoint("TOPLEFT", dungeonInfo, "BOTTOMLEFT", -60, -8)
+        else
+            row:SetPoint("TOP", self.memberRows[i - 1].row, "BOTTOM", 0, -2)
+        end
         row:Hide()
 
-        local roleText = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        roleText:SetPoint("LEFT", row, "LEFT", 5, 0)
+        -- Role icon + name on the left
+        local roleText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        roleText:SetPoint("LEFT", row, "LEFT", 8, 0)
+        roleText:SetWidth(70)
+        roleText:SetJustifyH("LEFT")
 
         local nameText = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        nameText:SetPoint("LEFT", roleText, "RIGHT", 5, 0)
+        nameText:SetPoint("LEFT", roleText, "RIGHT", 4, 0)
+        nameText:SetWidth(110)
+        nameText:SetJustifyH("LEFT")
 
-        local addButton = CreateFrame("Button", nil, row)
-        addButton:SetSize(80, 20)
-        addButton:SetPoint("RIGHT", row, "RIGHT", -5, 0)
+        -- Add Friend button on the right (uses Blizzard button template)
+        local addButton = CreateFrame("Button", "BFPopupAddBtn" .. i, row, "UIPanelButtonTemplate")
+        addButton:SetSize(90, 22)
+        addButton:SetPoint("RIGHT", row, "RIGHT", -4, 0)
         addButton:SetText("Add Friend")
         addButton:Hide()
 
-        local statusText = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        statusText:SetPoint("RIGHT", row, "RIGHT", -5, 0)
+        -- Status text (shown instead of button for already-tracked friends)
+        local statusText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        statusText:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+        statusText:SetTextColor(0.5, 1, 0.5)
         statusText:Hide()
 
         self.memberRows[i] = {
@@ -66,10 +95,10 @@ function ns.FriendRequestPopup:Create()
         }
     end
 
-    -- Add All button
-    local addAllBtn = CreateFrame("Button", nil, frame)
-    addAllBtn:SetSize(100, 24)
-    addAllBtn:SetPoint("BOTTOM", frame, "BOTTOM", 0, 30)
+    -- Add All button at the bottom (uses Blizzard button template)
+    local addAllBtn = CreateFrame("Button", "BFPopupAddAllBtn", frame, "UIPanelButtonTemplate")
+    addAllBtn:SetSize(110, 26)
+    addAllBtn:SetPoint("BOTTOM", frame, "BOTTOM", 0, 32)
     addAllBtn:SetText("Add All")
     addAllBtn:SetScript("OnClick", function()
         ns.FriendRequestPopup:OnAddAll()
@@ -77,8 +106,9 @@ function ns.FriendRequestPopup:Create()
     self.addAllButton = addAllBtn
 
     -- Timer text
-    local timerText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    timerText:SetPoint("BOTTOM", frame, "BOTTOM", 0, 10)
+    local timerText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    timerText:SetPoint("BOTTOM", frame, "BOTTOM", 0, 14)
+    timerText:SetTextColor(0.6, 0.6, 0.6)
     self.timerText = timerText
 
     self.frame = frame
