@@ -12,23 +12,24 @@ function ns.MinimapButton:Create()
     btn:SetSize(BUTTON_SIZE, BUTTON_SIZE)
     btn:SetFrameStrata("MEDIUM")
     btn:SetFrameLevel(8)
+    btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
-    -- Icon texture
+    -- Icon texture (use a built-in WoW icon — the friends list icon)
     local icon = btn:CreateTexture(nil, "ARTWORK")
     icon:SetSize(BUTTON_SIZE - 4, BUTTON_SIZE - 4)
     icon:SetPoint("CENTER")
-    icon:SetTexture("Interface\\AddOns\\BetterFriends\\icon")
+    icon:SetTexture("Interface\\Icons\\Achievement_guildperk_everybodysfriend")
     self.icon = icon
 
-    -- Overlay for highlight
+    -- Highlight overlay
     local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
     highlight:SetSize(BUTTON_SIZE, BUTTON_SIZE)
     highlight:SetPoint("CENTER")
     highlight:SetTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
 
-    -- Border
+    -- Minimap button border (round border that matches other minimap buttons)
     local border = btn:CreateTexture(nil, "OVERLAY")
-    border:SetSize(BUTTON_SIZE + 2, BUTTON_SIZE + 2)
+    border:SetSize(BUTTON_SIZE + 12, BUTTON_SIZE + 12)
     border:SetPoint("CENTER")
     border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
 
@@ -41,19 +42,55 @@ function ns.MinimapButton:Create()
         end
     end)
 
-    -- Dragging support
+    -- Tooltip
+    btn:SetScript("OnEnter", function(frame)
+        GameTooltip:SetOwner(frame, "ANCHOR_LEFT")
+        GameTooltip:AddLine("|cFF00CCFFBetterFriends|r")
+        local totalCount = 0
+        if ns.Data and BetterFriendsDB and BetterFriendsDB.friends then
+            for _ in pairs(BetterFriendsDB.friends) do
+                totalCount = totalCount + 1
+            end
+        end
+        GameTooltip:AddLine("Tracking " .. totalCount .. " friends", 1, 1, 1)
+        GameTooltip:AddLine("Left-click to open", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    btn:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+
+    -- Dragging — repositions button around the minimap edge
     btn:SetMovable(true)
     btn:EnableMouse(true)
     btn:RegisterForDrag("LeftButton")
 
     btn:SetScript("OnDragStart", function(frame)
         frame._isDragging = true
+        frame:SetScript("OnUpdate", function(self)
+            if not self._isDragging then return end
+            local mx, my = Minimap:GetCenter()
+            local cx, cy = GetCursorPosition()
+            local scale = Minimap:GetEffectiveScale()
+            cx, cy = cx / scale, cy / scale
+            local angle = math.atan2(cy - my, cx - mx)
+            local x = math.cos(angle) * RADIUS
+            local y = math.sin(angle) * RADIUS
+            self:ClearAllPoints()
+            self:SetPoint("CENTER", Minimap, "CENTER", x, y)
+            -- Store angle in degrees
+            ns.MinimapButton._dragAngle = math.deg(angle)
+        end)
     end)
 
     btn:SetScript("OnDragStop", function(frame)
         frame._isDragging = false
-        -- Calculate angle from cursor position relative to Minimap center
-        -- In the real game, GetCursorPosition() would be used here
+        frame:SetScript("OnUpdate", nil)
+        -- Save the final angle
+        if ns.MinimapButton._dragAngle then
+            local settings = ns.Data:GetSettings()
+            settings.minimapButtonPosition = ns.MinimapButton._dragAngle
+        end
     end)
 
     self.button = btn
