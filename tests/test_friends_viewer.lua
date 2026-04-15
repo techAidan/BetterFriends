@@ -576,18 +576,9 @@ describe("FriendsViewer: Display formatting", function()
 
         -- rows[1] is now the section header; first friend row is rows[2].
         local text = ns.FriendsViewer.rows[2].line1:GetText()
-        expect(text).toContain("roleicon-healer")
-    end)
-
-    it("should include class icon in line1 text", function()
-        local ns = loadAll()
-
-        addFriend(ns, "Blobheal", "Thrall", "PALADIN", "Paladin", "HEALER")
-
-        ns.FriendsViewer:Show()
-
-        local text = ns.FriendsViewer.rows[2].line1:GetText()
-        expect(text).toContain("classicon-paladin")
+        -- Role icon is rendered via |T..|t markup against the classic
+        -- LFG role texture sheet; the path is the stable identifier.
+        expect(text).toContain("UI-LFG-ICON-ROLES")
     end)
 
     it("should include BNet tag in line1 when linked", function()
@@ -882,7 +873,11 @@ describe("FriendsViewer: Hover tooltip", function()
         return nil
     end
 
-    it("should include the character name in a tooltip header line", function()
+    it("should include the realm in a tooltip line", function()
+        -- The tooltip deliberately avoids echoing anything the row
+        -- already shows (name, class, role, BNet tag). Realm is only
+        -- visible on hover, so it's a good canary that BuildTooltipLines
+        -- is producing content.
         local ns = loadAll()
         addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
         ns.FriendsViewer:Show()
@@ -890,7 +885,7 @@ describe("FriendsViewer: Hover tooltip", function()
         local entry = ns.FriendsViewer:GetDisplayList()[1]
         local lines = ns.FriendsViewer:BuildTooltipLines(entry)
 
-        expect(findLineMatching(lines, "Blob")).toNotBeNil()
+        expect(findLineMatching(lines, "Thrall")).toNotBeNil()
     end)
 
     it("should list every key run from keyHistory", function()
@@ -938,10 +933,12 @@ describe("FriendsViewer: Hover tooltip", function()
         expect(findLineMatching(lines, "great healer")).toNotBeNil()
     end)
 
-    it("should fall back to aggregate stats for legacy entries with no keyHistory", function()
+    it("should show a placeholder line for legacy entries with no keyHistory", function()
+        -- Legacy entries predate keyHistory and the row itself still
+        -- shows keysCompleted / highestKey, so the tooltip only needs
+        -- to explain why the per-run list is empty.
         local ns = loadAll()
         local nr = addFriend(ns, "Legacy", "Thrall", "WARRIOR", "Warrior", "TANK")
-        -- Simulate an old DB entry that predates keyHistory
         local friend = ns.Data:GetFriend(nr)
         friend.keyHistory = nil
         friend.keysCompleted = 7
@@ -952,8 +949,7 @@ describe("FriendsViewer: Hover tooltip", function()
         local entry = ns.FriendsViewer:GetDisplayList()[1]
         local lines = ns.FriendsViewer:BuildTooltipLines(entry)
 
-        expect(findLineMatching(lines, "7")).toNotBeNil()
-        expect(findLineMatching(lines, "Stonevault")).toNotBeNil()
+        expect(findLineMatching(lines, "No recorded runs yet")).toNotBeNil()
     end)
 
     it("should push lines into GameTooltip via ShowHoverTooltip", function()
@@ -1139,17 +1135,18 @@ describe("FriendsViewer: Inline remove button", function()
     end)
 end)
 
-describe("Utils: GetClassIcon", function()
-    it("should return atlas markup for a known class token", function()
+describe("Utils: GetRoleIcon", function()
+    it("should return |T..|t markup for known roles", function()
         local ns = loadAll()
-        local markup = ns.Utils.GetClassIcon("PALADIN")
-        expect(markup).toContain("classicon-paladin")
+        expect(ns.Utils.GetRoleIcon("TANK")).toContain("UI-LFG-ICON-ROLES")
+        expect(ns.Utils.GetRoleIcon("HEALER")).toContain("UI-LFG-ICON-ROLES")
+        expect(ns.Utils.GetRoleIcon("DAMAGER")).toContain("UI-LFG-ICON-ROLES")
     end)
 
-    it("should return empty string for nil or empty class token", function()
+    it("should return empty string for unknown / nil roles", function()
         local ns = loadAll()
-        expect(ns.Utils.GetClassIcon(nil)).toBe("")
-        expect(ns.Utils.GetClassIcon("")).toBe("")
+        expect(ns.Utils.GetRoleIcon(nil)).toBe("")
+        expect(ns.Utils.GetRoleIcon("NONE")).toBe("")
     end)
 end)
 

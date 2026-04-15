@@ -18,26 +18,26 @@ function ns.Utils.GetClassColoredName(name, classToken)
     return name
 end
 
+-- Role icons as inline |T..|t markup using Blizzard's classic LFG role
+-- texture sheet. This texture ships with every WoW build so the icons
+-- render reliably regardless of Retail/Classic/patch. Coordinates are
+-- picked from the 64x64 sprite sheet to give:
+--   TANK    -> shield
+--   HEALER  -> plus/cross
+--   DAMAGER -> crossed swords (dagger-equivalent)
+local ROLE_ICON_TEXTURE = "Interface\\LFGFrame\\UI-LFG-ICON-ROLES"
+local ROLE_ICON_COORDS = {
+    TANK    = { 0,  19, 22, 41 },
+    HEALER  = { 20, 39,  1, 20 },
+    DAMAGER = { 20, 39, 22, 41 },
+}
 function ns.Utils.GetRoleIcon(role)
-    local atlasMap = {
-        TANK = "roleicon-tank",
-        HEALER = "roleicon-healer",
-        DAMAGER = "roleicon-dps",
-    }
-    local atlas = atlasMap[role]
-    if atlas then
-        return CreateAtlasMarkup(atlas, 16, 16)
-    end
-    return ""
-end
-
--- Class crest inline markup. Blizzard provides one atlas per class as
--- "classicon-<lowercasetoken>" (e.g. classicon-warrior, classicon-deathknight).
--- Returns "" for unknown tokens so callers can unconditionally concat.
-function ns.Utils.GetClassIcon(classToken)
-    if not classToken or classToken == "" then return "" end
-    local atlas = "classicon-" .. string.lower(classToken)
-    return CreateAtlasMarkup(atlas, 16, 16)
+    local c = ROLE_ICON_COORDS[role]
+    if not c then return "" end
+    return string.format(
+        "|T%s:16:16:0:0:64:64:%d:%d:%d:%d|t",
+        ROLE_ICON_TEXTURE, c[1], c[2], c[3], c[4]
+    )
 end
 
 function ns.Utils.GetRoleDisplayName(role)

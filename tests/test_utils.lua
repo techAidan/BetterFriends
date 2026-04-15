@@ -39,19 +39,22 @@ describe("Utils.GetClassColoredName", function()
 end)
 
 describe("Utils.GetRoleIcon", function()
-    it("should return atlas markup for tank", function()
+    -- Role icons use |T..|t markup against the classic LFG role
+    -- texture sheet, which ships with every WoW build. The texture
+    -- path is the stable identifier we assert against.
+    it("should return texture markup for tank", function()
         local result = ns.Utils.GetRoleIcon("TANK")
-        expect(result).toContain("roleicon-tank")
+        expect(result).toContain("UI-LFG-ICON-ROLES")
     end)
 
-    it("should return atlas markup for healer", function()
+    it("should return texture markup for healer", function()
         local result = ns.Utils.GetRoleIcon("HEALER")
-        expect(result).toContain("roleicon-healer")
+        expect(result).toContain("UI-LFG-ICON-ROLES")
     end)
 
-    it("should return atlas markup for dps", function()
+    it("should return texture markup for dps", function()
         local result = ns.Utils.GetRoleIcon("DAMAGER")
-        expect(result).toContain("roleicon-dps")
+        expect(result).toContain("UI-LFG-ICON-ROLES")
     end)
 
     it("should return empty string for unknown role", function()

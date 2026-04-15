@@ -78,6 +78,17 @@ function ns.FriendsViewer:Create()
         hoverTex:SetColorTexture(0.3, 0.6, 1.0, 0.12)
         hoverTex:Hide()
 
+        -- Section header hairline: a 1px horizontal texture sitting just
+        -- under the header label. Hidden for normal rows; shown when the
+        -- row is rendering an ONLINE/OFFLINE divider. Looks much more
+        -- polished than the old "━━" character fake line.
+        local hlineTex = row:CreateTexture(nil, "ARTWORK")
+        hlineTex:SetColorTexture(0.35, 0.35, 0.40, 0.7)
+        hlineTex:SetHeight(1)
+        hlineTex:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 8, 4)
+        hlineTex:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -8, 4)
+        hlineTex:Hide()
+
         -- Inline "X" remove button, anchored to the right edge. Hidden
         -- by default; shown in OnEnter, hidden in OnLeave. Clicking it
         -- fires the same confirmation dialog as the context-menu Remove.
@@ -149,6 +160,7 @@ function ns.FriendsViewer:Create()
             row = row,
             bgTex = bgTex,
             hoverTex = hoverTex,
+            hlineTex = hlineTex,
             removeBtn = removeBtn,
             line1 = line1,
             line2 = line2,
@@ -470,27 +482,31 @@ function ns.FriendsViewer:UpdateRows()
         end
 
         if entry and entry._isHeader then
-            -- Render as a divider: bold label on line1, clear lines 2/3,
-            -- suppress hover highlight (no useful action on a header).
-            rowData.line1:SetText("━━  " .. entry._headerText .. "  ━━━━━━━━━━━━━━━━━━━━")
+            -- Render as a divider: compact label on line1, a thin
+            -- texture hairline across the row below it, and no mouse
+            -- interaction. Much cleaner than the old "━━" character fake.
+            rowData.line1:SetText(entry._headerText)
             rowData.line2:SetText("")
             rowData.line3:SetText("")
             if rowData.hoverTex then rowData.hoverTex:Hide() end
             if rowData.removeBtn then rowData.removeBtn:Hide() end
+            if rowData.hlineTex then rowData.hlineTex:Show() end
             rowData.row:EnableMouse(false)
             rowData.row:Show()
         elseif entry then
             rowData.row:EnableMouse(true)
+            if rowData.hlineTex then rowData.hlineTex:Hide() end
             local friend = entry.friend
             local liveStatus = entry.liveStatus
 
-            -- Line 1: role icon  class icon  class-colored name  [role]  BattleTag
+            -- Line 1: role icon  class-colored name  BattleTag
+            -- Class-color already carries the class identity, so no
+            -- separate class icon; the role icon (shield / plus /
+            -- crossed swords) is the piece of info not conveyed by
+            -- the name's color alone.
             local roleIcon = friend.role and ns.Utils.GetRoleIcon(friend.role) or ""
-            local classIcon = ns.Utils.GetClassIcon(friend.className)
             local coloredName = ns.Utils.GetClassColoredName(friend.characterName, friend.className)
-            local leading = ""
-            if roleIcon ~= "" then leading = leading .. roleIcon .. " " end
-            if classIcon ~= "" then leading = leading .. classIcon .. " " end
+            local leading = (roleIcon ~= "") and (roleIcon .. " ") or ""
             local parts = { leading .. coloredName }
             if friend.bnetTag then
                 table.insert(parts, "|cFFAAAAAA" .. friend.bnetTag .. "|r")
@@ -576,37 +592,43 @@ end
 -- { { left = "...", right = "..." }, ... } so tests can inspect the
 -- structure without needing a real GameTooltip. ShowHoverTooltip renders
 -- this into Blizzard's GameTooltip.
+--
+-- The tooltip deliberately does NOT echo information already visible on
+-- the row itself (name, class color, role, BNet tag, aggregate key stats).
+-- Its sole job is to surface things you can't see at a glance:
+--   * realm (the row elides it to save space)
+--   * how long they've been in your friends list
+--   * freeform note
+--   * the full per-run key history (every run, not just best+met)
 function ns.FriendsViewer:BuildTooltipLines(entry)
     local friend = entry.friend
     local lines = {}
 
-    -- Header: class-colored name
-    local coloredName = ns.Utils.GetClassColoredName(friend.characterName, friend.className)
-    table.insert(lines, { left = coloredName, isHeader = true })
-
-    -- Subheader: realm + role
-    local sub = friend.realm or ""
-    if friend.role then
-        local roleName = ns.Utils.GetRoleDisplayName(friend.role)
-        if sub ~= "" then sub = sub .. "  -  " end
-        sub = sub .. roleName
-    end
-    if sub ~= "" then
-        table.insert(lines, { left = "|cFFAAAAAA" .. sub .. "|r" })
+    -- Realm (often not on the row since cross-realm names get cramped)
+    if friend.realm and friend.realm ~= "" then
+        table.insert(lines, { left = "|cFFAAAAAARealm:|r " .. friend.realm })
     end
 
-    -- Note (if present)
+    -- Friendship duration — humanized (e.g. "Friends for 3 days")
+    if friend.addedTimestamp then
+        table.insert(lines, {
+            left = "|cFFAAAAAAFriends for:|r " .. ns.Utils.FormatRelativeTime(friend.addedTimestamp):gsub(" ago$", ""),
+        })
+    end
+
+    -- Note (if present) — freeform, never shown on the row
     if friend.notes and friend.notes ~= "" then
         table.insert(lines, { left = "|cFFFFDD88Note:|r " .. friend.notes })
     end
 
-    -- Blank separator
+    -- Blank separator before the history block
     table.insert(lines, { left = " " })
 
-    -- Key history: every run we've tracked with this friend
+    -- Per-run key history: this is the main value-add. Lists every run,
+    -- not just the best/most-recent like the row does.
     local history = friend.keyHistory
     if history and #history > 0 then
-        table.insert(lines, { left = "|cFFFFD100Keys Together:|r" })
+        table.insert(lines, { left = "|cFFFFD100Full History  (" .. #history .. ")|r" })
         for _, run in ipairs(history) do
             local left = "  +" .. (run.level or "?") .. "  " .. (run.dungeon or "?")
             local right
@@ -617,20 +639,17 @@ function ns.FriendsViewer:BuildTooltipLines(entry)
             else
                 right = "|cFF888888-|r"
             end
-            if run.timestamp and ns.Utils and ns.Utils.FormatTimestamp then
-                right = right .. "  " .. ns.Utils.FormatTimestamp(run.timestamp)
+            if run.timestamp then
+                right = right .. "  |cFF888888" .. ns.Utils.FormatRelativeTime(run.timestamp) .. "|r"
             end
             table.insert(lines, { left = left, right = right })
         end
     else
-        -- Legacy entry with no history — fall back to the aggregate stats
-        -- stored on the friend record.
-        table.insert(lines, { left = "|cFFFFD100Keys Together:|r " .. (friend.keysCompleted or 0) })
-        if friend.highestKeyLevel and friend.highestKeyDungeon then
-            table.insert(lines, {
-                left = "|cFFAAAAAABest:|r +" .. friend.highestKeyLevel .. " " .. friend.highestKeyDungeon,
-            })
-        end
+        -- Legacy entry with no recorded history — nothing unique to
+        -- show, so point the user at where the data will come from.
+        table.insert(lines, {
+            left = "|cFF888888No recorded runs yet - history will appear after your next key together.|r",
+        })
     end
 
     return lines
