@@ -1,4 +1,4 @@
--- Tests for /bf test debug command
+-- Tests for /btf test debug command
 package.path = package.path .. ";tests/?.lua"
 require("test_runner")
 require("wow_api_mock")
@@ -6,6 +6,7 @@ require("wow_api_mock")
 local function loadAll()
     ResetMocks()
     LoadAddonFile("BetterFriends/Utils.lua")
+    LoadAddonFile("BetterFriends/DebugLog.lua")
     LoadAddonFile("BetterFriends/Data.lua")
     LoadAddonFile("BetterFriends/Core.lua")
     LoadAddonFile("BetterFriends/PartyScanner.lua")
@@ -21,7 +22,7 @@ local function loadAll()
     return ns
 end
 
-describe("/bf test command", function()
+describe("/btf test command", function()
     it("should register the test slash handler", function()
         local ns = loadAll()
         expect(ns.SlashHandlers["test"]).toNotBeNil()

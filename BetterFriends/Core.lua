@@ -52,7 +52,7 @@ ns.eventFrame:RegisterEvent("ADDON_LOADED")
 
 -- Slash commands
 function ns:SetupSlashCommands()
-    SLASH_BETTERFRIENDS1 = "/bf"
+    SLASH_BETTERFRIENDS1 = "/btf"
     SLASH_BETTERFRIENDS2 = "/betterfriends"
 
     SlashCmdList["BETTERFRIENDS"] = function(msg)
@@ -81,12 +81,52 @@ function ns:SetupSlashCommands()
         elseif cmd == "clearlog" then
             ns.DebugLog:Clear()
             print("|cFF00CCFFBetterFriends:|r Debug log cleared.")
+        elseif cmd:match("^remove") then
+            local charName = cmd:match("^remove%s+(.+)")
+            if not charName or charName == "" then
+                print("|cFF00CCFFBetterFriends:|r Usage: /btf remove <character-realm>")
+                print("  Example: /btf remove blobheal-thrall")
+                print("  Use /btf show to see tracked friends.")
+                return
+            end
+            charName = string.lower(charName)
+            if ns.Data:RemoveFriend(charName) then
+                print("|cFF00CCFFBetterFriends:|r Removed " .. charName .. " from tracked friends.")
+                -- Also clear from sentThisSession so they can be re-added
+                if ns.FriendRequestPopup and ns.FriendRequestPopup.sentThisSession then
+                    ns.FriendRequestPopup.sentThisSession[charName] = nil
+                end
+            else
+                print("|cFF00CCFFBetterFriends:|r '" .. charName .. "' not found in tracked friends.")
+                -- List similar matches to help
+                local friends = ns.Data:GetAllFriends()
+                local suggestions = {}
+                for nameRealm, _ in pairs(friends) do
+                    if nameRealm:find(charName, 1, true) then
+                        table.insert(suggestions, nameRealm)
+                    end
+                end
+                if #suggestions > 0 then
+                    print("  Did you mean: " .. table.concat(suggestions, ", ") .. "?")
+                end
+            end
+        elseif cmd == "list" then
+            local friends = ns.Data:GetAllFriends()
+            local count = 0
+            print("|cFF00CCFFBetterFriends:|r Tracked friends:")
+            for nameRealm, friend in pairs(friends) do
+                print("  " .. nameRealm .. " (" .. (friend.classDisplayName or "?") .. " " .. (friend.role or "?") .. ")")
+                count = count + 1
+            end
+            if count == 0 then
+                print("  (none)")
+            end
         else
             -- Check for subcommands handled by other modules
             if ns.SlashHandlers and ns.SlashHandlers[cmd] then
                 ns.SlashHandlers[cmd](msg)
             else
-                print("|cFF00CCFFBetterFriends:|r Unknown command '" .. cmd .. "'. Type /bf help for commands.")
+                print("|cFF00CCFFBetterFriends:|r Unknown command '" .. cmd .. "'. Type /btf help for commands.")
             end
         end
     end
@@ -94,13 +134,15 @@ end
 
 function ns:PrintHelp()
     print("|cFF00CCFFBetterFriends|r - Track friends made through M+ keys")
-    print("  /bf show - Toggle the friends viewer")
-    print("  /bf minimap - Toggle minimap button")
-    print("  /bf test - Simulate an M+ completion (debug)")
-    print("  /bf link <char> <btag> - Manually link a friend to a BattleTag")
-    print("  /bf log [N] - Show last N debug log entries (default 20)")
-    print("  /bf clearlog - Clear the debug log")
-    print("  /bf help - Show this help message")
+    print("  /btf show - Toggle the friends viewer")
+    print("  /btf minimap - Toggle minimap button")
+    print("  /btf test - Simulate an M+ completion (debug)")
+    print("  /btf link <char> <btag> - Manually link a friend to a BattleTag")
+    print("  /btf remove <char-realm> - Remove a tracked friend")
+    print("  /btf list - List all tracked friends")
+    print("  /btf log [N] - Show last N debug log entries (default 20)")
+    print("  /btf clearlog - Clear the debug log")
+    print("  /btf help - Show this help message")
 end
 
 -- Allow other modules to register slash subcommands

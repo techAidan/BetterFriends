@@ -76,6 +76,8 @@ function FrameMethods:SetWordWrap(v) end
 -- Button mock methods
 function FrameMethods:SetEnabled(v) self._enabled = v end
 function FrameMethods:IsEnabled() return self._enabled ~= false end
+function FrameMethods:Enable() self._enabled = true end
+function FrameMethods:Disable() self._enabled = false end
 function FrameMethods:SetNormalTexture(t) end
 function FrameMethods:SetHighlightTexture(t) end
 function FrameMethods:SetPushedTexture(t) end
@@ -86,6 +88,9 @@ function FrameMethods:SetTexture(t) self._texture = t end
 function FrameMethods:SetTexCoord(...) end
 function FrameMethods:SetAtlas(atlas) self._atlas = atlas end
 function FrameMethods:SetVertexColor(...) end
+function FrameMethods:SetColorTexture(r, g, b, a) self._colorTexture = {r, g, b, a} end
+function FrameMethods:SetAllPoints(frame) end
+function FrameMethods:SetDrawLayer(layer) end
 
 -- Child creation
 function FrameMethods:CreateFontString(name, layer, template)
@@ -280,6 +285,20 @@ function BNSendFriendInvite(text, noteText)
     table.insert(_G._mockBNetInvitesSent, { text = text, note = noteText })
 end
 
+-- Verified BattleTag invite flow (unit-based)
+_G._mockBNCheckInviteUnit = nil
+_G._mockBNVerifiedInviteSent = false
+
+function BNCheckBattleTagInviteToUnit(unitID)
+    _G._mockBNCheckInviteUnit = unitID
+    table.insert(_G._mockBNetInvitesSent, { type = "check", unit = unitID })
+end
+
+function BNSendVerifiedBattleTagInvite()
+    _G._mockBNVerifiedInviteSent = true
+    table.insert(_G._mockBNetInvitesSent, { type = "verified" })
+end
+
 function C_BattleNet.GetFriendAccountInfo(index)
     return _G._mockBNetFriends[index]
 end
@@ -367,6 +386,8 @@ function ResetMocks()
     _G._mockFriendList = {}
     _G._mockBNetFriends = {}
     _G._mockBNetInvitesSent = {}
+    _G._mockBNCheckInviteUnit = nil
+    _G._mockBNVerifiedInviteSent = false
     _G._createdFrames = {}
     _G._capturedPrints = {}
     SlashCmdList = {}

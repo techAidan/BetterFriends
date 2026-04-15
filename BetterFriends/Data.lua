@@ -103,3 +103,11 @@ function ns.Data:ClearBNetLink(nameRealm)
     friend.bnetAccountID = nil
     friend.bnetTag = nil
 end
+
+function ns.Data:RemoveFriend(nameRealm)
+    if not BetterFriendsDB.friends[nameRealm] then
+        return false
+    end
+    BetterFriendsDB.friends[nameRealm] = nil
+    return true
+end
