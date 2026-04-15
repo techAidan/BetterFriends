@@ -44,6 +44,7 @@ function FrameMethods:SetPoint(...) self._points = {...} end
 function FrameMethods:ClearAllPoints() self._points = {} end
 function FrameMethods:SetMovable(v) self._movable = v end
 function FrameMethods:EnableMouse(v) self._mouseEnabled = v end
+function FrameMethods:EnableMouseWheel(v) self._mouseWheelEnabled = v end
 function FrameMethods:SetClampedToScreen(v) self._clamped = v end
 function FrameMethods:RegisterForDrag(...) end
 function FrameMethods:SetBackdrop(backdrop) self._backdrop = backdrop end
@@ -274,11 +275,12 @@ _G._mockBNetFriends = {}
 _G._mockBNetInvitesSent = {}
 
 function BNGetNumFriends()
+    -- Real WoW API: returns (numBNetTotal, numBNetOnline)
     local online = 0
     for _, f in ipairs(_G._mockBNetFriends) do
         if f.isOnline then online = online + 1 end
     end
-    return online, #_G._mockBNetFriends
+    return #_G._mockBNetFriends, online
 end
 
 function BNSendFriendInvite(text, noteText)
@@ -300,6 +302,10 @@ function BNSendVerifiedBattleTagInvite()
 end
 
 function C_BattleNet.GetFriendAccountInfo(index)
+    -- Friends in the mock can declare either:
+    --   * gameAccounts (legacy/test-only table)
+    --   * gameAccountInfo (modern API: currently-active game account)
+    -- Tests may set either (or both) to exercise different code paths.
     return _G._mockBNetFriends[index]
 end
 

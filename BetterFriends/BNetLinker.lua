@@ -4,9 +4,76 @@ ns.BNetLinker = {}
 ns.BNetLinker.bnetSnapshot = {}
 ns.BNetLinker.pendingInvites = {}
 
+-- Enumerate every online WoW game account on the BNet friend list,
+-- calling callback(info, ga) for each. Handles the three API shapes
+-- documented in FriendsViewer.lua: info.gameAccountInfo (modern),
+-- C_BattleNet.GetFriendNumGameAccounts/GetFriendGameAccountInfo (multi),
+-- and info.gameAccounts (legacy/test).
+local function isWoWGameAccount(ga)
+    return ga and (
+        ga.clientProgram == nil
+        or ga.clientProgram == "WoW"
+        or (BNET_CLIENT_WOW and ga.clientProgram == BNET_CLIENT_WOW)
+    )
+end
+
+-- Check both possible online-status locations. Modern client puts the live
+-- status under info.gameAccountInfo.isOnline; the top-level info.isOnline
+-- field may not be populated.
+local function isAccountOnline(info)
+    if not info then return false end
+    if info.isOnline then return true end
+    if info.gameAccountInfo then
+        if info.gameAccountInfo.isOnline then return true end
+        if info.gameAccountInfo.clientProgram and info.gameAccountInfo.clientProgram ~= "" then
+            return true
+        end
+    end
+    return false
+end
+ns.BNetLinker._isAccountOnline = isAccountOnline  -- exported for FriendsViewer
+
+function ns.BNetLinker:ForEachWoWGameAccount(callback)
+    if not BNGetNumFriends then return end
+    local numTotal = BNGetNumFriends()
+
+    for i = 1, numTotal do
+        local info = C_BattleNet.GetFriendAccountInfo(i)
+        if info and isAccountOnline(info) then
+            local seen = false
+
+            if info.gameAccountInfo and isWoWGameAccount(info.gameAccountInfo)
+                and info.gameAccountInfo.characterName
+                and info.gameAccountInfo.characterName ~= "" then
+                callback(info, info.gameAccountInfo)
+                seen = true
+            end
+
+            if C_BattleNet.GetFriendNumGameAccounts then
+                local numGA = C_BattleNet.GetFriendNumGameAccounts(i) or 0
+                for j = 1, numGA do
+                    local ga = C_BattleNet.GetFriendGameAccountInfo(i, j)
+                    if ga and isWoWGameAccount(ga) and ga.characterName and ga.characterName ~= "" then
+                        callback(info, ga)
+                        seen = true
+                    end
+                end
+            end
+
+            if not seen and info.gameAccounts then
+                for _, ga in ipairs(info.gameAccounts) do
+                    if isWoWGameAccount(ga) and ga.characterName and ga.characterName ~= "" then
+                        callback(info, ga)
+                    end
+                end
+            end
+        end
+    end
+end
+
 function ns.BNetLinker:SnapshotBNetFriends()
     self.bnetSnapshot = {}
-    local _, numTotal = BNGetNumFriends()
+    local numTotal = BNGetNumFriends()
     for i = 1, numTotal do
         local info = C_BattleNet.GetFriendAccountInfo(i)
         if info and info.bnetAccountID then
@@ -24,7 +91,7 @@ function ns.BNetLinker:GetPendingInvites()
 end
 
 function ns.BNetLinker:FindBNetIndexByAccountID(accountID)
-    local _, numTotal = BNGetNumFriends()
+    local numTotal = BNGetNumFriends()
     for i = 1, numTotal do
         local info = C_BattleNet.GetFriendAccountInfo(i)
         if info and info.bnetAccountID == accountID then
@@ -35,7 +102,7 @@ function ns.BNetLinker:FindBNetIndexByAccountID(accountID)
 end
 
 function ns.BNetLinker:ProcessNewFriends()
-    local _, numTotal = BNGetNumFriends()
+    local numTotal = BNGetNumFriends()
     local currentFriends = {}
 
     -- Build current friends set and collect new ones
@@ -110,53 +177,167 @@ ns:RegisterEvent("BN_FRIEND_LIST_SIZE_CHANGED", ns.BNetLinker, function(self, ev
 end)
 
 -- Slash command for manual linking
+-- Usage:
+--   /btf link CharName-Realm BattleTag#1234   (explicit btag)
+--   /btf link CharName-Realm                  (auto-find matching online BNet friend)
+--   /btf link CharName                        (auto-find by character name only)
 ns.SlashHandlers["link"] = function(msg)
-    -- msg is the full message like "link CharName-Realm Keith#1234"
-    -- Strip the "link " prefix to get args
     local args = msg:match("^%s*link%s+(.+)$")
     if not args then
-        print("|cFF00CCFFBetterFriends:|r Usage: /bf link CharName-Realm BattleTag#1234")
+        print("|cFF00CCFFBetterFriends:|r Usage: /btf link CharName[-Realm] [BattleTag#1234]")
         return
     end
 
-    -- Parse character name-realm and btag
-    local nameRealm, btag = args:match("^(%S+)%s+(%S+)$")
-    if not nameRealm or not btag then
-        print("|cFF00CCFFBetterFriends:|r Usage: /bf link CharName-Realm BattleTag#1234")
+    -- Parse: either "<nameRealm> <btag>" or just "<nameRealm>"
+    local nameRealmArg, btagArg = args:match("^(%S+)%s+(%S+)$")
+    if not nameRealmArg then
+        nameRealmArg = args:match("^(%S+)$")
+    end
+    if not nameRealmArg then
+        print("|cFF00CCFFBetterFriends:|r Usage: /btf link CharName[-Realm] [BattleTag#1234]")
         return
     end
 
-    -- Normalize the nameRealm
-    local name, realm = nameRealm:match("^([^%-]+)%-(.+)$")
-    if not name or not realm then
-        print("|cFF00CCFFBetterFriends:|r Invalid character name format. Use: CharName-Realm")
-        return
+    -- Allow either "Char-Realm" or just "Char" — fall back to player realm
+    local name, realm = nameRealmArg:match("^([^%-]+)%-(.+)$")
+    if not name then
+        name = nameRealmArg
+        realm = nil
     end
 
-    local normalized = ns.Utils.NormalizeNameRealm(name, realm)
-    local friend = ns.Data:GetFriend(normalized)
+    -- Find the tracked friend. Try exact normalized first, then any
+    -- friend with a matching character name.
+    local friend, normalized
+    if realm then
+        normalized = ns.Utils.NormalizeNameRealm(name, realm)
+        friend = ns.Data:GetFriend(normalized)
+    end
     if not friend then
-        print("|cFF00CCFFBetterFriends:|r " .. normalized .. " is not in your friends list.")
+        for nr, f in pairs(ns.Data:GetAllFriends()) do
+            if f.characterName and string.lower(f.characterName) == string.lower(name) then
+                friend = f
+                normalized = nr
+                break
+            end
+        end
+    end
+    if not friend then
+        print("|cFF00CCFFBetterFriends:|r " .. nameRealmArg .. " is not in your friends list.")
         return
     end
 
-    -- Find the bnet account ID by btag
-    local _, numTotal = BNGetNumFriends()
+    -- Resolve the BattleTag — either from explicit arg or by auto-finding
+    -- a matching online BNet character.
+    local btag = btagArg
     local foundAccountID = nil
-    for i = 1, numTotal do
-        local info = C_BattleNet.GetFriendAccountInfo(i)
-        if info and info.battleTag == btag then
-            foundAccountID = info.bnetAccountID
-            break
+    local numTotal = BNGetNumFriends()
+
+    if btag then
+        for i = 1, numTotal do
+            local info = C_BattleNet.GetFriendAccountInfo(i)
+            if info and info.battleTag == btag then
+                foundAccountID = info.bnetAccountID
+                break
+            end
         end
+    else
+        -- Auto-find: scan online BNet WoW characters for one with this name
+        local matches = {}
+        local target = string.lower(friend.characterName or "")
+        ns.BNetLinker:ForEachWoWGameAccount(function(info, ga)
+            if string.lower(ga.characterName) == target then
+                table.insert(matches, { info = info, ga = ga })
+            end
+        end)
+        if #matches == 0 then
+            print("|cFF00CCFFBetterFriends:|r No BNet friend found with character '" .. (friend.characterName or "?") .. "'. Try /btf bnetscan to list candidates.")
+            return
+        elseif #matches > 1 then
+            print("|cFF00CCFFBetterFriends:|r Multiple BNet friends have a character named '" .. friend.characterName .. "':")
+            for _, m in ipairs(matches) do
+                print("  " .. m.info.battleTag .. " - " .. m.ga.characterName .. "-" .. (m.ga.realmName or "?"))
+            end
+            print("Specify which one: /btf link " .. nameRealmArg .. " <BattleTag#1234>")
+            return
+        end
+        foundAccountID = matches[1].info.bnetAccountID
+        btag = matches[1].info.battleTag
     end
 
     if foundAccountID then
         ns.Data:SetBNetLink(normalized, foundAccountID, btag)
         print("|cFF00CCFFBetterFriends:|r Linked " .. normalized .. " to " .. btag)
     else
-        -- Link with just the btag, no account ID
         ns.Data:SetBNetLink(normalized, nil, btag)
         print("|cFF00CCFFBetterFriends:|r Linked " .. normalized .. " to " .. btag .. " (BNet account not found in friends list)")
     end
+end
+
+-- Diagnostic: dump all online BNet WoW characters and all tracked friends
+-- so the user can see why a fuzzy match isn't catching.
+ns.SlashHandlers["bnetscan"] = function(msg)
+    print("|cFF00CCFFBetterFriends:|r === BNet character scan ===")
+    -- Real WoW returns (numTotal, numOnline). Capture both so we can show
+    -- the right value and iterate the full list.
+    local numTotal, numOnlineFromAPI = BNGetNumFriends()
+    print("Total BNet friends: " .. numTotal
+        .. "   (API reports " .. tostring(numOnlineFromAPI) .. " online)")
+
+    -- Verify by walking the list ourselves with the more permissive check
+    local onlineCount = 0
+    for i = 1, numTotal do
+        local info = C_BattleNet.GetFriendAccountInfo(i)
+        if isAccountOnline(info) then
+            onlineCount = onlineCount + 1
+        end
+    end
+    print("Online BNet friends (counted): " .. onlineCount)
+
+    local onlineWoW = 0
+    ns.BNetLinker:ForEachWoWGameAccount(function(info, ga)
+        onlineWoW = onlineWoW + 1
+        local realmStr = ga.realmName or "?"
+        local key = string.lower(ga.characterName) .. "-" .. string.lower(realmStr)
+        print("  |cFFFFD100" .. (info.battleTag or "?") .. "|r  "
+            .. ga.characterName .. "-" .. realmStr
+            .. "  |cFF888888[key=" .. key .. "]|r")
+    end)
+    print("Online WoW characters: " .. onlineWoW)
+
+    -- Diagnostic: if anyone is online but no WoW character was enumerated,
+    -- dump raw account info so we can see what fields ARE populated.
+    if onlineCount > 0 and onlineWoW == 0 then
+        print("|cFFFF4444No WoW characters enumerated. Raw account dump (first 5 online):|r")
+        local dumped = 0
+        for i = 1, numTotal do
+            local info = C_BattleNet.GetFriendAccountInfo(i)
+            if isAccountOnline(info) and dumped < 5 then
+                dumped = dumped + 1
+                print("  #" .. i .. " " .. (info.battleTag or "?")
+                    .. "  topIsOnline=" .. tostring(info.isOnline)
+                    .. "  hasGameAccountInfo=" .. tostring(info.gameAccountInfo ~= nil)
+                    .. "  hasGameAccounts=" .. tostring(info.gameAccounts ~= nil))
+                if info.gameAccountInfo then
+                    local ga = info.gameAccountInfo
+                    print("    gameAccountInfo: clientProgram=" .. tostring(ga.clientProgram)
+                        .. " isOnline=" .. tostring(ga.isOnline)
+                        .. " character=" .. tostring(ga.characterName)
+                        .. " realm=" .. tostring(ga.realmName))
+                end
+                if C_BattleNet.GetFriendNumGameAccounts then
+                    print("    numGameAccounts=" .. tostring(C_BattleNet.GetFriendNumGameAccounts(i)))
+                end
+            end
+        end
+    end
+
+    print("--- Tracked friends ---")
+    for nameRealm, friend in pairs(ns.Data:GetAllFriends()) do
+        local linked = friend.bnetTag
+            and ("|cFF00FF00linked: " .. friend.bnetTag .. "|r")
+            or "|cFFFF4444no link|r"
+        print("  " .. (friend.characterName or "?") .. "-" .. (friend.realm or "?")
+            .. "  |cFF888888[key=" .. nameRealm .. "]|r  " .. linked)
+    end
+    print("Tip: if a tracked friend's [key=...] doesn't match an online character's [key=...], use /btf link CharName to auto-link by name.")
 end

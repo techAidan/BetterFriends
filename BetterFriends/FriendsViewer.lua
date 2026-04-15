@@ -3,20 +3,28 @@ local addonName, ns = ...
 ns.FriendsViewer = {}
 ns.FriendsViewer.displayList = {}
 ns.FriendsViewer.rows = {}
+ns.FriendsViewer.scrollOffset = 0
+ns.FriendsViewer.visibleRows = 12
 
 function ns.FriendsViewer:Create()
     if self.frame then return end
 
     local frame = CreateFrame("Frame", "BetterFriendsViewerFrame", UIParent, "BackdropTemplate")
-    frame:SetSize(600, 450)
+    frame:SetSize(620, 560)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("HIGH")
     frame:SetMovable(true)
     frame:EnableMouse(true)
+    frame:EnableMouseWheel(true)
     frame:SetClampedToScreen(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", function(f) f:StartMoving() end)
     frame:SetScript("OnDragStop", function(f) f:StopMovingOrSizing() end)
+
+    -- Mouse wheel scrolling
+    frame:SetScript("OnMouseWheel", function(_, delta)
+        ns.FriendsViewer:Scroll(-delta)
+    end)
 
     -- Dark background with border
     frame:SetBackdrop({
@@ -48,16 +56,33 @@ function ns.FriendsViewer:Create()
     footer:SetTextColor(0.7, 0.7, 0.7)
     self.footerText = footer
 
-    -- Create visible rows (up to 12)
+    -- Create visible rows (up to visibleRows)
     self.rows = {}
-    for i = 1, 12 do
+    for i = 1, self.visibleRows do
         local row = CreateFrame("Frame", nil, frame)
-        row:SetSize(580, 36)
-        row:SetPoint("TOP", title, "BOTTOM", 0, -10 - (i - 1) * 38)
+        row:SetSize(580, 38)
+        row:SetPoint("TOP", title, "BOTTOM", 0, -12 - (i - 1) * 40)
+        row:EnableMouse(true)
         row:Hide()
 
+        -- Zebra stripe background: every row gets a bg texture, even rows
+        -- are tinted slightly so the two alternate. We set the color at
+        -- UpdateRows time because the *display* row index depends on scroll.
+        local bgTex = row:CreateTexture(nil, "BACKGROUND")
+        bgTex:SetAllPoints(row)
+        bgTex:SetColorTexture(1, 1, 1, 0)  -- transparent by default
+
+        -- Hover highlight (shown on mouse enter)
+        local hoverTex = row:CreateTexture(nil, "BACKGROUND", nil, 1)
+        hoverTex:SetAllPoints(row)
+        hoverTex:SetColorTexture(0.3, 0.6, 1.0, 0.12)
+        hoverTex:Hide()
+
+        row:SetScript("OnEnter", function() hoverTex:Show() end)
+        row:SetScript("OnLeave", function() hoverTex:Hide() end)
+
         local line1 = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        line1:SetPoint("TOPLEFT", row, "TOPLEFT", 5, 0)
+        line1:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -2)
         line1:SetJustifyH("LEFT")
 
         local line2 = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -70,6 +95,8 @@ function ns.FriendsViewer:Create()
 
         self.rows[i] = {
             row = row,
+            bgTex = bgTex,
+            hoverTex = hoverTex,
             line1 = line1,
             line2 = line2,
             line3 = line3,
@@ -99,15 +126,198 @@ function ns.FriendsViewer:Hide()
     end
 end
 
+-- Strip spaces, hyphens and apostrophes from a realm name so realms with
+-- inconsistent spelling ("Area 52" vs "Area52", "Wyrmrest Accord" vs
+-- "WyrmrestAccord") can still be matched.
+local function strictRealmKey(realm)
+    if not realm then return "" end
+    return (string.lower(realm):gsub("[%s%-']", ""))
+end
+
+-- Determine if a game account record represents a WoW character.
+-- clientProgram may be nil in tests; default-allow in that case.
+local function isWoWGameAccount(ga)
+    return ga and (
+        ga.clientProgram == nil
+        or ga.clientProgram == "WoW"
+        or (BNET_CLIENT_WOW and ga.clientProgram == BNET_CLIENT_WOW)
+    )
+end
+
+-- Check both possible online-status locations. Modern client puts the live
+-- status under info.gameAccountInfo.isOnline; the top-level info.isOnline
+-- field may not be populated.
+local function isAccountOnline(info)
+    if not info then return false end
+    if info.isOnline then return true end
+    if info.gameAccountInfo then
+        if info.gameAccountInfo.isOnline then return true end
+        if info.gameAccountInfo.clientProgram and info.gameAccountInfo.clientProgram ~= "" then
+            return true
+        end
+    end
+    return false
+end
+
+-- Enumerate every WoW game account for an online BNet friend, calling
+-- `callback(info, ga)` for each. Handles three API shapes:
+--   1. Modern: info.gameAccountInfo (single currently-active game account)
+--   2. Multi-account API: C_BattleNet.GetFriendNumGameAccounts/GetFriendGameAccountInfo
+--   3. Legacy/test mock: info.gameAccounts table
+-- Note: the live WoW client does NOT populate info.gameAccounts on the
+-- account-level struct, which is why we need (1) and (2).
+function ns.FriendsViewer:ForEachWoWGameAccount(callback)
+    if not BNGetNumFriends then return end
+    local numTotal = BNGetNumFriends()
+
+    for i = 1, numTotal do
+        local info = C_BattleNet.GetFriendAccountInfo(i)
+        if info and isAccountOnline(info) then
+            local seen = false
+
+            -- (1) Currently-active game account
+            if info.gameAccountInfo and isWoWGameAccount(info.gameAccountInfo) then
+                if info.gameAccountInfo.characterName and info.gameAccountInfo.characterName ~= "" then
+                    callback(info, info.gameAccountInfo)
+                    seen = true
+                end
+            end
+
+            -- (2) Iterate via num/index API (covers alt characters logged into a
+            --     second WoW client, or anything not reflected in gameAccountInfo)
+            if C_BattleNet.GetFriendNumGameAccounts then
+                local numGA = C_BattleNet.GetFriendNumGameAccounts(i) or 0
+                for j = 1, numGA do
+                    local ga = C_BattleNet.GetFriendGameAccountInfo(i, j)
+                    if ga and isWoWGameAccount(ga) and ga.characterName and ga.characterName ~= "" then
+                        callback(info, ga)
+                        seen = true
+                    end
+                end
+            end
+
+            -- (3) Legacy/test fallback
+            if not seen and info.gameAccounts then
+                for _, ga in ipairs(info.gameAccounts) do
+                    if isWoWGameAccount(ga) and ga.characterName and ga.characterName ~= "" then
+                        callback(info, ga)
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Build lookups of all online BNet WoW characters.
+-- Returns three tables to support progressively-fuzzier matching:
+--   exact:  "name-realm" exact normalized
+--   strict: "name-realmnospaces" with whitespace/punctuation removed
+--   byName: lowercase name -> array of matches (used only when unambiguous)
+function ns.FriendsViewer:BuildBNetCharacterLookup()
+    local exact, strict, byName = {}, {}, {}
+
+    self:ForEachWoWGameAccount(function(info, ga)
+        local match = {
+            accountID = info.bnetAccountID,
+            btag = info.battleTag,
+            characterName = ga.characterName,
+            className = ga.className,
+            areaName = ga.areaName,
+            realmName = ga.realmName,
+        }
+        local lowerName = string.lower(ga.characterName)
+        if ga.realmName and ga.realmName ~= "" then
+            exact[lowerName .. "-" .. string.lower(ga.realmName)] = match
+            strict[lowerName .. "-" .. strictRealmKey(ga.realmName)] = match
+        end
+        byName[lowerName] = byName[lowerName] or {}
+        table.insert(byName[lowerName], match)
+    end)
+
+    return exact, strict, byName
+end
+
+-- Try progressively fuzzier matches against a tracked friend record.
+local function findBNetMatch(friend, exact, strict, byName)
+    local lowerName = friend.characterName and string.lower(friend.characterName) or nil
+    local lowerRealm = friend.realm and string.lower(friend.realm) or nil
+
+    -- 1. Exact normalized name-realm
+    if lowerName and lowerRealm then
+        local key = lowerName .. "-" .. lowerRealm
+        if exact[key] then return exact[key], "exact" end
+    end
+
+    -- 2. Strict (whitespace/punctuation removed) name-realm
+    if lowerName and friend.realm then
+        local key = lowerName .. "-" .. strictRealmKey(friend.realm)
+        if strict[key] then return strict[key], "strict" end
+    end
+
+    -- 3. Name-only, but only if unambiguous (single online char with that name)
+    if lowerName and byName[lowerName] and #byName[lowerName] == 1 then
+        return byName[lowerName][1], "name-only"
+    end
+
+    return nil, nil
+end
+
 function ns.FriendsViewer:RefreshData()
     local allFriends = ns.Data:GetAllFriends()
     local entries = {}
     local onlineCount = 0
 
+    -- Build a set of current party members for fallback online detection
+    local partyMembers = {}
+    if ns.PartyScanner then
+        local currentParty = ns.PartyScanner:CaptureCurrentParty()
+        for _, member in ipairs(currentParty) do
+            partyMembers[member.nameRealm] = member
+        end
+    end
+
+    -- Build lookups of BNet WoW characters for fuzzy online detection
+    -- when no bnetAccountID is stored on the tracked friend record.
+    local exactBNet, strictBNet, byNameBNet = self:BuildBNetCharacterLookup()
+
     for nameRealm, friend in pairs(allFriends) do
         local liveStatus = nil
+        local inParty = partyMembers[nameRealm] ~= nil
+
+        -- 1. Try BNet status by stored account ID
         if friend.bnetAccountID and ns.BNetLinker then
             liveStatus = ns.BNetLinker:GetLiveStatus(nameRealm)
+        end
+
+        -- 2. Fallback: fuzzy-match against all online BNet friends.
+        --    Opportunistically link the friend so future lookups are cheap.
+        if (not liveStatus or not liveStatus.isOnline) then
+            local match, how = findBNetMatch(friend, exactBNet, strictBNet, byNameBNet)
+            if match then
+                liveStatus = {
+                    isOnline = true,
+                    currentCharacter = match.characterName,
+                    currentClass = match.className,
+                    zone = match.areaName,
+                }
+                if not friend.bnetAccountID then
+                    ns.Data:SetBNetLink(nameRealm, match.accountID, match.btag)
+                    if ns.DebugLog then
+                        ns.DebugLog:Log("Viewer", "Auto-linked", nameRealm, "to", match.btag, "via", how)
+                    end
+                end
+            end
+        end
+
+        -- 3. Fallback: if they're in your party right now, they're online
+        if (not liveStatus or not liveStatus.isOnline) and inParty then
+            local partyInfo = partyMembers[nameRealm]
+            liveStatus = {
+                isOnline = true,
+                currentCharacter = partyInfo.name,
+                currentClass = partyInfo.classDisplayName,
+                zone = "In your party",
+            }
         end
 
         local isOnline = liveStatus and liveStatus.isOnline or false
@@ -135,35 +345,60 @@ function ns.FriendsViewer:RefreshData()
     self._onlineCount = onlineCount
     self._totalCount = #entries
 
-    -- Update footer
-    if self.footerText then
-        self.footerText:SetText(onlineCount .. " online / " .. #entries .. " tracked")
-    end
+    -- Reset scroll to top whenever data is refreshed
+    self.scrollOffset = 0
 
     self:UpdateRows()
 end
 
+function ns.FriendsViewer:Scroll(delta)
+    local total = #self.displayList
+    local maxOffset = math.max(0, total - self.visibleRows)
+    local newOffset = math.max(0, math.min(maxOffset, (self.scrollOffset or 0) + delta))
+    if newOffset ~= self.scrollOffset then
+        self.scrollOffset = newOffset
+        self:UpdateRows()
+    end
+end
+
 function ns.FriendsViewer:UpdateRows()
-    for i = 1, 12 do
+    local offset = self.scrollOffset or 0
+    for i = 1, self.visibleRows do
         local rowData = self.rows[i]
         if not rowData then break end
 
-        local entry = self.displayList[i]
+        -- Zebra stripe: even visible rows get a subtle tint.
+        -- Keyed on visible row index so the pattern stays consistent as you scroll.
+        if rowData.bgTex then
+            if i % 2 == 0 then
+                rowData.bgTex:SetColorTexture(1, 1, 1, 0.04)
+            else
+                rowData.bgTex:SetColorTexture(1, 1, 1, 0)
+            end
+        end
+
+        local entry = self.displayList[i + offset]
         if entry then
             local friend = entry.friend
             local liveStatus = entry.liveStatus
 
-            -- Line 1: class-colored name + BattleTag
+            -- Line 1: class-colored name  •  Role  •  BattleTag
             local coloredName = ns.Utils.GetClassColoredName(friend.characterName, friend.className)
-            local line1Text = coloredName
-            if friend.bnetTag then
-                line1Text = line1Text .. " (" .. friend.bnetTag .. ")"
+            local parts = { coloredName }
+            if friend.role then
+                local roleName = ns.Utils.GetRoleDisplayName(friend.role)
+                table.insert(parts, "|cFFAAAAAA[" .. roleName .. "]|r")
             end
-            rowData.line1:SetText(line1Text)
+            if friend.bnetTag then
+                table.insert(parts, "|cFFAAAAAA" .. friend.bnetTag .. "|r")
+            else
+                table.insert(parts, "|cFF666666(no BNet link)|r")
+            end
+            rowData.line1:SetText(table.concat(parts, "  "))
 
-            -- Line 2: online status or offline
+            -- Line 2: online status (green) or offline (red)
             if entry._isOnline and liveStatus then
-                local statusText = "Currently on: " .. (liveStatus.currentCharacter or "?")
+                local statusText = "|cFF40FF40Online|r - " .. (liveStatus.currentCharacter or "?")
                 if liveStatus.currentClass then
                     statusText = statusText .. " (" .. liveStatus.currentClass .. ")"
                 end
@@ -172,7 +407,7 @@ function ns.FriendsViewer:UpdateRows()
                 end
                 rowData.line2:SetText(statusText)
             else
-                rowData.line2:SetText("Offline")
+                rowData.line2:SetText("|cFFFF4444Offline|r")
             end
 
             -- Line 3: key stats
@@ -193,6 +428,19 @@ function ns.FriendsViewer:UpdateRows()
         else
             rowData.row:Hide()
         end
+    end
+
+    -- Update footer with online count + scroll position
+    if self.footerText then
+        local total = self._totalCount or 0
+        local online = self._onlineCount or 0
+        local footerStr = online .. " online / " .. total .. " tracked"
+        if total > self.visibleRows then
+            local first = offset + 1
+            local last = math.min(total, offset + self.visibleRows)
+            footerStr = footerStr .. "  -  Showing " .. first .. "-" .. last .. " (scroll for more)"
+        end
+        self.footerText:SetText(footerStr)
     end
 end
 

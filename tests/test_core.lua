@@ -6,6 +6,7 @@ require("wow_api_mock")
 local function loadAll()
     ResetMocks()
     LoadAddonFile("BetterFriends/Utils.lua")
+    LoadAddonFile("BetterFriends/DebugLog.lua")
     LoadAddonFile("BetterFriends/Data.lua")
     LoadAddonFile("BetterFriends/Core.lua")
     return BetterFriendsNS
@@ -134,6 +135,50 @@ describe("Core: Slash Commands", function()
         SlashCmdList["BETTERFRIENDS"]("")
 
         expect(#_G._capturedPrints > 0).toBeTruthy()
+    end)
+
+    it("should route subcommand-with-args to a SlashHandlers entry by first word", function()
+        local ns = loadAll()
+        local onEvent = ns.eventFrame:GetScript("OnEvent")
+        onEvent(ns.eventFrame, "ADDON_LOADED", "BetterFriends")
+
+        local receivedMsg = nil
+        ns.SlashHandlers["link"] = function(msg)
+            receivedMsg = msg
+        end
+
+        SlashCmdList["BETTERFRIENDS"]("link Urazall")
+        expect(receivedMsg).toBe("link Urazall")  -- handler receives original msg
+
+        receivedMsg = nil
+        SlashCmdList["BETTERFRIENDS"]("link Sword-Thrall Keith#1234")
+        expect(receivedMsg).toBe("link Sword-Thrall Keith#1234")
+    end)
+
+    it("should route a single-word subcommand to SlashHandlers", function()
+        local ns = loadAll()
+        local onEvent = ns.eventFrame:GetScript("OnEvent")
+        onEvent(ns.eventFrame, "ADDON_LOADED", "BetterFriends")
+
+        local called = false
+        ns.SlashHandlers["bnetscan"] = function(msg)
+            called = true
+        end
+
+        SlashCmdList["BETTERFRIENDS"]("bnetscan")
+        expect(called).toBe(true)
+    end)
+
+    it("should print Unknown command for an unrecognized first word", function()
+        local ns = loadAll()
+        local onEvent = ns.eventFrame:GetScript("OnEvent")
+        onEvent(ns.eventFrame, "ADDON_LOADED", "BetterFriends")
+
+        _G._capturedPrints = {}
+        SlashCmdList["BETTERFRIENDS"]("nonsense argument")
+
+        local output = table.concat(_G._capturedPrints, " ")
+        expect(output).toContain("Unknown command")
     end)
 end)
 

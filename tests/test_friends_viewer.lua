@@ -6,6 +6,7 @@ require("wow_api_mock")
 local function loadAll()
     ResetMocks()
     LoadAddonFile("BetterFriends/Utils.lua")
+    LoadAddonFile("BetterFriends/DebugLog.lua")
     LoadAddonFile("BetterFriends/Data.lua")
     LoadAddonFile("BetterFriends/Core.lua")
     LoadAddonFile("BetterFriends/PartyScanner.lua")
@@ -59,13 +60,21 @@ describe("FriendsViewer: Create", function()
         expect(type(ns.FriendsViewer.rows)).toBe("table")
     end)
 
-    it("should set frame size roughly 600x450", function()
+    it("should set frame size to fit at least 12 rows", function()
         local ns = loadAll()
 
         ns.FriendsViewer:Create()
 
-        expect(ns.FriendsViewer.frame:GetWidth()).toBe(600)
-        expect(ns.FriendsViewer.frame:GetHeight()).toBe(450)
+        expect(ns.FriendsViewer.frame:GetWidth()).toBe(620)
+        expect(ns.FriendsViewer.frame:GetHeight()).toBe(560)
+    end)
+
+    it("should enable mouse wheel for scrolling", function()
+        local ns = loadAll()
+
+        ns.FriendsViewer:Create()
+
+        expect(ns.FriendsViewer.frame._mouseWheelEnabled).toBe(true)
     end)
 end)
 
@@ -344,6 +353,353 @@ describe("FriendsViewer: Display entry structure", function()
         expect(#list).toBe(1)
         expect(list[1].nameRealm).toBe("nobnet-thrall")
         expect(list[1].liveStatus).toBeNil()
+    end)
+end)
+
+describe("FriendsViewer: BNet character-match online detection", function()
+    it("should detect online status by character name when no bnetAccountID stored", function()
+        local ns = loadAll()
+
+        -- Add friend WITHOUT bnetAccountID
+        addFriend(ns, "Urazall", "Thrall", "HUNTER", "Hunter", "DAMAGER")
+
+        -- BNet friend list contains Urazall as an online character
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555,
+                battleTag = "Ura#1234",
+                isOnline = true,
+                gameAccounts = {
+                    { characterName = "Urazall", realmName = "Thrall", className = "HUNTER", areaName = "Dornogal" },
+                },
+            },
+        }
+
+        ns.FriendsViewer:Show()
+
+        local list = ns.FriendsViewer:GetDisplayList()
+        expect(#list).toBe(1)
+        expect(list[1]._isOnline).toBe(true)
+        expect(list[1].liveStatus.zone).toBe("Dornogal")
+    end)
+
+    it("should opportunistically link BNet account when character match found", function()
+        local ns = loadAll()
+
+        local nameRealm = addFriend(ns, "Urazall", "Thrall", "HUNTER", "Hunter", "DAMAGER")
+
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555,
+                battleTag = "Ura#1234",
+                isOnline = true,
+                gameAccounts = {
+                    { characterName = "Urazall", realmName = "Thrall", className = "HUNTER", areaName = "Dornogal" },
+                },
+            },
+        }
+
+        ns.FriendsViewer:Show()
+
+        local friend = ns.Data:GetFriend(nameRealm)
+        expect(friend.bnetAccountID).toBe(555)
+        expect(friend.bnetTag).toBe("Ura#1234")
+    end)
+
+    it("should match when realm has spaces stripped (Area 52 vs Area52)", function()
+        local ns = loadAll()
+
+        -- Tracked friend stored with realm "Area52" (no space)
+        addFriend(ns, "Urazall", "Area52", "HUNTER", "Hunter", "DAMAGER")
+
+        -- BNet game account reports realm as "Area 52" (with space)
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555,
+                battleTag = "Ura#1234",
+                isOnline = true,
+                gameAccounts = {
+                    { characterName = "Urazall", realmName = "Area 52", className = "HUNTER", areaName = "Dornogal" },
+                },
+            },
+        }
+
+        ns.FriendsViewer:Show()
+
+        local list = ns.FriendsViewer:GetDisplayList()
+        expect(#list).toBe(1)
+        expect(list[1]._isOnline).toBe(true)
+    end)
+
+    it("should match by character name only when unambiguous", function()
+        local ns = loadAll()
+
+        -- Tracked friend stored with a realm that doesn't match the BNet realm at all
+        addFriend(ns, "Urazall", "OldRealmName", "HUNTER", "Hunter", "DAMAGER")
+
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555,
+                battleTag = "Ura#1234",
+                isOnline = true,
+                gameAccounts = {
+                    { characterName = "Urazall", realmName = "TotallyDifferent", className = "HUNTER", areaName = "Dornogal" },
+                },
+            },
+        }
+
+        ns.FriendsViewer:Show()
+
+        local list = ns.FriendsViewer:GetDisplayList()
+        expect(list[1]._isOnline).toBe(true)
+    end)
+
+    it("should NOT match by character name when ambiguous", function()
+        local ns = loadAll()
+
+        addFriend(ns, "Urazall", "OldRealmName", "HUNTER", "Hunter", "DAMAGER")
+
+        -- Two BNet friends both have a character named Urazall on different realms
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555,
+                battleTag = "Ura#1234",
+                isOnline = true,
+                gameAccounts = {
+                    { characterName = "Urazall", realmName = "RealmA", className = "HUNTER", areaName = "Dornogal" },
+                },
+            },
+            {
+                bnetAccountID = 666,
+                battleTag = "Other#5678",
+                isOnline = true,
+                gameAccounts = {
+                    { characterName = "Urazall", realmName = "RealmB", className = "HUNTER", areaName = "Stormwind" },
+                },
+            },
+        }
+
+        ns.FriendsViewer:Show()
+
+        local list = ns.FriendsViewer:GetDisplayList()
+        -- Ambiguous → no fallback match → should still appear offline
+        expect(list[1]._isOnline).toBe(false)
+    end)
+
+    it("should detect online when only gameAccountInfo.isOnline is set (top-level isOnline nil)", function()
+        local ns = loadAll()
+
+        addFriend(ns, "Urazall", "Thrall", "HUNTER", "Hunter", "DAMAGER")
+
+        -- Modern API quirk: top-level isOnline is nil, online status lives
+        -- only on the inner gameAccountInfo struct.
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555,
+                battleTag = "Ura#1234",
+                isOnline = nil,
+                gameAccountInfo = {
+                    clientProgram = "WoW",
+                    isOnline = true,
+                    characterName = "Urazall",
+                    realmName = "Thrall",
+                    className = "HUNTER",
+                    areaName = "Dornogal",
+                },
+            },
+        }
+
+        ns.FriendsViewer:Show()
+
+        local list = ns.FriendsViewer:GetDisplayList()
+        expect(list[1]._isOnline).toBe(true)
+    end)
+
+    it("should detect online via modern info.gameAccountInfo (no gameAccounts field)", function()
+        local ns = loadAll()
+
+        addFriend(ns, "Urazall", "Thrall", "HUNTER", "Hunter", "DAMAGER")
+
+        -- Modern API: only gameAccountInfo is set, gameAccounts is absent
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555,
+                battleTag = "Ura#1234",
+                isOnline = true,
+                gameAccountInfo = {
+                    clientProgram = "WoW",
+                    characterName = "Urazall",
+                    realmName = "Thrall",
+                    className = "HUNTER",
+                    areaName = "Dornogal",
+                },
+            },
+        }
+
+        ns.FriendsViewer:Show()
+
+        local list = ns.FriendsViewer:GetDisplayList()
+        expect(list[1]._isOnline).toBe(true)
+        expect(list[1].liveStatus.zone).toBe("Dornogal")
+    end)
+
+    it("should not match offline BNet friends", function()
+        local ns = loadAll()
+
+        addFriend(ns, "Urazall", "Thrall", "HUNTER", "Hunter", "DAMAGER")
+
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555,
+                battleTag = "Ura#1234",
+                isOnline = false,
+                gameAccounts = {
+                    { characterName = "Urazall", realmName = "Thrall", className = "HUNTER", areaName = "Dornogal" },
+                },
+            },
+        }
+
+        ns.FriendsViewer:Show()
+
+        local list = ns.FriendsViewer:GetDisplayList()
+        expect(list[1]._isOnline).toBe(false)
+    end)
+end)
+
+describe("FriendsViewer: Display formatting", function()
+    it("should include role in line1 text", function()
+        local ns = loadAll()
+
+        addFriend(ns, "Blobheal", "Thrall", "PALADIN", "Paladin", "HEALER")
+
+        ns.FriendsViewer:Show()
+
+        local text = ns.FriendsViewer.rows[1].line1:GetText()
+        expect(text).toContain("Healer")
+    end)
+
+    it("should include BNet tag in line1 when linked", function()
+        local ns = loadAll()
+
+        addFriend(ns, "Blobheal", "Thrall", "PALADIN", "Paladin", "HEALER", nil, nil, 100, "Keith#1234")
+
+        ns.FriendsViewer:Show()
+
+        local text = ns.FriendsViewer.rows[1].line1:GetText()
+        expect(text).toContain("Keith#1234")
+    end)
+
+    it("should show '(no BNet link)' when not linked", function()
+        local ns = loadAll()
+
+        addFriend(ns, "Blobheal", "Thrall", "PALADIN", "Paladin", "HEALER")
+
+        ns.FriendsViewer:Show()
+
+        local text = ns.FriendsViewer.rows[1].line1:GetText()
+        expect(text).toContain("no BNet link")
+    end)
+end)
+
+describe("FriendsViewer: Scrolling", function()
+    local function addManyFriends(ns, count)
+        for i = 1, count do
+            addFriend(ns, "Friend" .. string.format("%02d", i), "Thrall", "WARRIOR", "Warrior", "TANK")
+        end
+    end
+
+    it("should track scrollOffset starting at 0", function()
+        local ns = loadAll()
+        addManyFriends(ns, 20)
+
+        ns.FriendsViewer:Show()
+
+        expect(ns.FriendsViewer.scrollOffset).toBe(0)
+    end)
+
+    it("should scroll down when Scroll(+1) called", function()
+        local ns = loadAll()
+        addManyFriends(ns, 20)
+
+        ns.FriendsViewer:Show()
+        ns.FriendsViewer:Scroll(1)
+
+        expect(ns.FriendsViewer.scrollOffset).toBe(1)
+    end)
+
+    it("should clamp scrollOffset to maxOffset", function()
+        local ns = loadAll()
+        addManyFriends(ns, 20)  -- 20 entries, 12 visible -> max offset 8
+
+        ns.FriendsViewer:Show()
+        ns.FriendsViewer:Scroll(100)
+
+        expect(ns.FriendsViewer.scrollOffset).toBe(8)
+    end)
+
+    it("should not scroll past 0", function()
+        local ns = loadAll()
+        addManyFriends(ns, 20)
+
+        ns.FriendsViewer:Show()
+        ns.FriendsViewer:Scroll(-10)
+
+        expect(ns.FriendsViewer.scrollOffset).toBe(0)
+    end)
+
+    it("should not scroll when total <= visibleRows", function()
+        local ns = loadAll()
+        addManyFriends(ns, 5)
+
+        ns.FriendsViewer:Show()
+        ns.FriendsViewer:Scroll(5)
+
+        expect(ns.FriendsViewer.scrollOffset).toBe(0)
+    end)
+
+    it("should reset scrollOffset on RefreshData", function()
+        local ns = loadAll()
+        addManyFriends(ns, 20)
+
+        ns.FriendsViewer:Show()
+        ns.FriendsViewer:Scroll(5)
+        expect(ns.FriendsViewer.scrollOffset).toBe(5)
+
+        ns.FriendsViewer:RefreshData()
+        expect(ns.FriendsViewer.scrollOffset).toBe(0)
+    end)
+
+    it("should display row content from scrolled offset", function()
+        local ns = loadAll()
+        addManyFriends(ns, 20)
+
+        ns.FriendsViewer:Show()
+        local row1Before = ns.FriendsViewer.rows[1].line1:GetText()
+
+        ns.FriendsViewer:Scroll(3)
+        local row1After = ns.FriendsViewer.rows[1].line1:GetText()
+
+        expect(row1Before == row1After).toBe(false)
+    end)
+
+    it("should show scroll position in footer when scrollable", function()
+        local ns = loadAll()
+        addManyFriends(ns, 20)
+
+        ns.FriendsViewer:Show()
+
+        local footerText = ns.FriendsViewer.footerText:GetText()
+        expect(footerText).toContain("Showing 1-12")
+    end)
+
+    it("should not show scroll position in footer when all entries fit", function()
+        local ns = loadAll()
+        addManyFriends(ns, 5)
+
+        ns.FriendsViewer:Show()
+
+        local footerText = ns.FriendsViewer.footerText:GetText()
+        expect(footerText:find("Showing") == nil).toBe(true)
     end)
 end)
 

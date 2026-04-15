@@ -122,9 +122,12 @@ function ns:SetupSlashCommands()
                 print("  (none)")
             end
         else
-            -- Check for subcommands handled by other modules
-            if ns.SlashHandlers and ns.SlashHandlers[cmd] then
-                ns.SlashHandlers[cmd](msg)
+            -- Check for subcommands handled by other modules.
+            -- Match by FIRST WORD of cmd so handlers like "link" can accept
+            -- additional args ("link Urazall" → handler key "link").
+            local subcmd = cmd:match("^(%S+)")
+            if subcmd and ns.SlashHandlers and ns.SlashHandlers[subcmd] then
+                ns.SlashHandlers[subcmd](msg)
             else
                 print("|cFF00CCFFBetterFriends:|r Unknown command '" .. cmd .. "'. Type /btf help for commands.")
             end
@@ -137,7 +140,8 @@ function ns:PrintHelp()
     print("  /btf show - Toggle the friends viewer")
     print("  /btf minimap - Toggle minimap button")
     print("  /btf test - Simulate an M+ completion (debug)")
-    print("  /btf link <char> <btag> - Manually link a friend to a BattleTag")
+    print("  /btf link <char> [btag] - Link a friend to a BattleTag (auto-find if btag omitted)")
+    print("  /btf bnetscan - Show online BNet WoW characters and tracked friends (diagnose linking)")
     print("  /btf remove <char-realm> - Remove a tracked friend")
     print("  /btf list - List all tracked friends")
     print("  /btf log [N] - Show last N debug log entries (default 20)")
