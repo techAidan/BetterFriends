@@ -345,6 +345,33 @@ function ns.FriendsViewer:RefreshData()
     self._onlineCount = onlineCount
     self._totalCount = #entries
 
+    -- renderList is what UpdateRows actually iterates over. It is
+    -- displayList with section-header pseudo-entries interleaved so the
+    -- viewer shows "━━ ONLINE (7) ━━" / "━━ OFFLINE (15) ━━" dividers.
+    -- Kept separate from displayList so external tests/API consumers
+    -- still see the flat friend list, indexable 1:1 with friend count.
+    local offlineCount = #entries - onlineCount
+    local renderList = {}
+    if onlineCount > 0 then
+        table.insert(renderList, {
+            _isHeader = true,
+            _headerText = "|cFF40FF40ONLINE|r  (" .. onlineCount .. ")",
+        })
+        for _, e in ipairs(entries) do
+            if e._isOnline then table.insert(renderList, e) end
+        end
+    end
+    if offlineCount > 0 then
+        table.insert(renderList, {
+            _isHeader = true,
+            _headerText = "|cFFFF4444OFFLINE|r  (" .. offlineCount .. ")",
+        })
+        for _, e in ipairs(entries) do
+            if not e._isOnline then table.insert(renderList, e) end
+        end
+    end
+    self.renderList = renderList
+
     -- Reset scroll to top whenever data is refreshed
     self.scrollOffset = 0
 
@@ -352,7 +379,9 @@ function ns.FriendsViewer:RefreshData()
 end
 
 function ns.FriendsViewer:Scroll(delta)
-    local total = #self.displayList
+    -- Scroll math is over renderList (which includes header rows) since
+    -- headers occupy row slots in the display.
+    local total = self.renderList and #self.renderList or 0
     local maxOffset = math.max(0, total - self.visibleRows)
     local newOffset = math.max(0, math.min(maxOffset, (self.scrollOffset or 0) + delta))
     if newOffset ~= self.scrollOffset then
@@ -363,22 +392,41 @@ end
 
 function ns.FriendsViewer:UpdateRows()
     local offset = self.scrollOffset or 0
+    local renderList = self.renderList or {}
     for i = 1, self.visibleRows do
         local rowData = self.rows[i]
         if not rowData then break end
 
-        -- Zebra stripe: even visible rows get a subtle tint.
-        -- Keyed on visible row index so the pattern stays consistent as you scroll.
+        local entry = renderList[i + offset]
+        -- Remember which entry is currently in this row slot so future
+        -- row interactions can look it up without re-deriving it.
+        rowData._currentEntry = entry
+
+        -- Zebra stripe: even visible rows get a subtle tint, UNLESS the
+        -- row is a section header (which needs a clean backdrop for the
+        -- divider look). Keyed on visible row index so the pattern stays
+        -- consistent as you scroll.
         if rowData.bgTex then
-            if i % 2 == 0 then
+            if entry and entry._isHeader then
+                rowData.bgTex:SetColorTexture(1, 1, 1, 0)
+            elseif i % 2 == 0 then
                 rowData.bgTex:SetColorTexture(1, 1, 1, 0.04)
             else
                 rowData.bgTex:SetColorTexture(1, 1, 1, 0)
             end
         end
 
-        local entry = self.displayList[i + offset]
-        if entry then
+        if entry and entry._isHeader then
+            -- Render as a divider: bold label on line1, clear lines 2/3,
+            -- suppress hover highlight (no useful action on a header).
+            rowData.line1:SetText("━━  " .. entry._headerText .. "  ━━━━━━━━━━━━━━━━━━━━")
+            rowData.line2:SetText("")
+            rowData.line3:SetText("")
+            if rowData.hoverTex then rowData.hoverTex:Hide() end
+            rowData.row:EnableMouse(false)
+            rowData.row:Show()
+        elseif entry then
+            rowData.row:EnableMouse(true)
             local friend = entry.friend
             local liveStatus = entry.liveStatus
 
@@ -430,15 +478,15 @@ function ns.FriendsViewer:UpdateRows()
         end
     end
 
-    -- Update footer with online count + scroll position
+    -- Update footer with online count + scroll indicator
     if self.footerText then
         local total = self._totalCount or 0
         local online = self._onlineCount or 0
         local footerStr = online .. " online / " .. total .. " tracked"
-        if total > self.visibleRows then
-            local first = offset + 1
-            local last = math.min(total, offset + self.visibleRows)
-            footerStr = footerStr .. "  -  Showing " .. first .. "-" .. last .. " (scroll for more)"
+        -- Show scroll hint based on renderList size (which includes
+        -- header rows), not friend count, since headers take row slots.
+        if #(self.renderList or {}) > self.visibleRows then
+            footerStr = footerStr .. "  -  scroll for more"
         end
         self.footerText:SetText(footerStr)
     end

@@ -567,6 +567,7 @@ describe("FriendsViewer: BNet character-match online detection", function()
 end)
 
 describe("FriendsViewer: Display formatting", function()
+    -- Row 1 is the OFFLINE section header; friend data starts at row 2.
     it("should include role in line1 text", function()
         local ns = loadAll()
 
@@ -574,7 +575,7 @@ describe("FriendsViewer: Display formatting", function()
 
         ns.FriendsViewer:Show()
 
-        local text = ns.FriendsViewer.rows[1].line1:GetText()
+        local text = ns.FriendsViewer.rows[2].line1:GetText()
         expect(text).toContain("Healer")
     end)
 
@@ -585,7 +586,7 @@ describe("FriendsViewer: Display formatting", function()
 
         ns.FriendsViewer:Show()
 
-        local text = ns.FriendsViewer.rows[1].line1:GetText()
+        local text = ns.FriendsViewer.rows[2].line1:GetText()
         expect(text).toContain("Keith#1234")
     end)
 
@@ -596,8 +597,20 @@ describe("FriendsViewer: Display formatting", function()
 
         ns.FriendsViewer:Show()
 
-        local text = ns.FriendsViewer.rows[1].line1:GetText()
+        local text = ns.FriendsViewer.rows[2].line1:GetText()
         expect(text).toContain("no BNet link")
+    end)
+
+    it("should render a section header row for OFFLINE friends", function()
+        local ns = loadAll()
+
+        addFriend(ns, "Blobheal", "Thrall", "PALADIN", "Paladin", "HEALER")
+
+        ns.FriendsViewer:Show()
+
+        local headerText = ns.FriendsViewer.rows[1].line1:GetText()
+        expect(headerText).toContain("OFFLINE")
+        expect(headerText).toContain("(1)")
     end)
 end)
 
@@ -629,12 +642,12 @@ describe("FriendsViewer: Scrolling", function()
 
     it("should clamp scrollOffset to maxOffset", function()
         local ns = loadAll()
-        addManyFriends(ns, 20)  -- 20 entries, 12 visible -> max offset 8
+        addManyFriends(ns, 20)  -- 20 entries + 1 header = 21 items, 12 visible -> max offset 9
 
         ns.FriendsViewer:Show()
         ns.FriendsViewer:Scroll(100)
 
-        expect(ns.FriendsViewer.scrollOffset).toBe(8)
+        expect(ns.FriendsViewer.scrollOffset).toBe(9)
     end)
 
     it("should not scroll past 0", function()
@@ -682,24 +695,24 @@ describe("FriendsViewer: Scrolling", function()
         expect(row1Before == row1After).toBe(false)
     end)
 
-    it("should show scroll position in footer when scrollable", function()
+    it("should show scroll hint in footer when scrollable", function()
         local ns = loadAll()
         addManyFriends(ns, 20)
 
         ns.FriendsViewer:Show()
 
         local footerText = ns.FriendsViewer.footerText:GetText()
-        expect(footerText).toContain("Showing 1-12")
+        expect(footerText).toContain("scroll for more")
     end)
 
-    it("should not show scroll position in footer when all entries fit", function()
+    it("should not show scroll hint in footer when all entries fit", function()
         local ns = loadAll()
         addManyFriends(ns, 5)
 
         ns.FriendsViewer:Show()
 
         local footerText = ns.FriendsViewer.footerText:GetText()
-        expect(footerText:find("Showing") == nil).toBe(true)
+        expect(footerText:find("scroll for more") == nil).toBe(true)
     end)
 end)
 
