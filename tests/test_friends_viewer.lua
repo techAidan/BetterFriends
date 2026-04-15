@@ -567,7 +567,7 @@ describe("FriendsViewer: BNet character-match online detection", function()
 end)
 
 describe("FriendsViewer: Display formatting", function()
-    it("should include role in line1 text", function()
+    it("should include role icon in line1 text", function()
         local ns = loadAll()
 
         addFriend(ns, "Blobheal", "Thrall", "PALADIN", "Paladin", "HEALER")
@@ -576,7 +576,18 @@ describe("FriendsViewer: Display formatting", function()
 
         -- rows[1] is now the section header; first friend row is rows[2].
         local text = ns.FriendsViewer.rows[2].line1:GetText()
-        expect(text).toContain("Healer")
+        expect(text).toContain("roleicon-healer")
+    end)
+
+    it("should include class icon in line1 text", function()
+        local ns = loadAll()
+
+        addFriend(ns, "Blobheal", "Thrall", "PALADIN", "Paladin", "HEALER")
+
+        ns.FriendsViewer:Show()
+
+        local text = ns.FriendsViewer.rows[2].line1:GetText()
+        expect(text).toContain("classicon-paladin")
     end)
 
     it("should include BNet tag in line1 when linked", function()
@@ -1010,6 +1021,135 @@ describe("Data: keyHistory tracking", function()
         expect(friend.keyHistory).toNotBeNil()
         expect(#friend.keyHistory).toBe(1)
         expect(friend.keyHistory[1].dungeon).toBe("Stonevault")
+    end)
+end)
+
+describe("FriendsViewer: Relative times", function()
+    it("should show a relative 'met' time on line3 instead of an absolute date", function()
+        local ns = loadAll()
+        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER", "Ara-Kara", 12)
+
+        -- Backdate so the relative formatter produces something
+        -- distinguishable from "0s ago"
+        local friend = ns.Data:GetFriend("blob-thrall")
+        friend.addedTimestamp = time() - (3 * 86400)  -- 3 days ago
+
+        ns.FriendsViewer:Show()
+
+        local line3 = ns.FriendsViewer.rows[2].line3:GetText()
+        expect(line3).toContain("Met:")
+        expect(line3).toContain("d ago")
+        -- The old format was "YYYY-MM-DD"; make sure we're not using it
+        expect(line3:find("%d%d%d%d%-%d%d%-%d%d") == nil).toBe(true)
+    end)
+
+    it("should show relative 'last seen' on offline friends", function()
+        local ns = loadAll()
+        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+
+        local friend = ns.Data:GetFriend("blob-thrall")
+        friend.lastSeenTimestamp = time() - (2 * 3600)  -- 2 hours ago
+
+        ns.FriendsViewer:Show()
+
+        local line2 = ns.FriendsViewer.rows[2].line2:GetText()
+        expect(line2).toContain("Offline")
+        expect(line2).toContain("last seen")
+        expect(line2).toContain("h ago")
+    end)
+end)
+
+describe("FriendsViewer: Inline remove button", function()
+    it("should create a remove button per row", function()
+        local ns = loadAll()
+        ns.FriendsViewer:Create()
+
+        for i = 1, ns.FriendsViewer.visibleRows do
+            expect(ns.FriendsViewer.rows[i].removeBtn).toNotBeNil()
+        end
+    end)
+
+    it("should start the remove button hidden", function()
+        local ns = loadAll()
+        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        ns.FriendsViewer:Show()
+
+        expect(ns.FriendsViewer.rows[2].removeBtn:IsShown()).toBe(false)
+    end)
+
+    it("should show the remove button when the row is hovered", function()
+        local ns = loadAll()
+        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        ns.FriendsViewer:Show()
+
+        local row = ns.FriendsViewer.rows[2].row
+        local onEnter = row:GetScript("OnEnter")
+        onEnter(row)
+
+        expect(ns.FriendsViewer.rows[2].removeBtn:IsShown()).toBe(true)
+    end)
+
+    it("should hide the remove button when the row loses hover", function()
+        local ns = loadAll()
+        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        ns.FriendsViewer:Show()
+
+        local row = ns.FriendsViewer.rows[2].row
+        local onEnter = row:GetScript("OnEnter")
+        local onLeave = row:GetScript("OnLeave")
+        onEnter(row)
+        expect(ns.FriendsViewer.rows[2].removeBtn:IsShown()).toBe(true)
+
+        onLeave(row)
+        expect(ns.FriendsViewer.rows[2].removeBtn:IsShown()).toBe(false)
+    end)
+
+    it("should not show a remove button when hovering a header row", function()
+        local ns = loadAll()
+        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        ns.FriendsViewer:Show()
+
+        -- row 1 is the OFFLINE header
+        local headerRow = ns.FriendsViewer.rows[1].row
+        local onEnter = headerRow:GetScript("OnEnter")
+        onEnter(headerRow)
+
+        expect(ns.FriendsViewer.rows[1].removeBtn:IsShown()).toBe(false)
+    end)
+
+    it("should trigger the remove confirmation popup on click", function()
+        local ns = loadAll()
+        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        ns.FriendsViewer:Show()
+
+        -- Stub StaticPopup_Show so we can see what got called
+        local captured = nil
+        _G.StaticPopup_Show = function(dialog, text, _, data)
+            captured = { dialog = dialog, text = text, data = data }
+        end
+
+        -- Stamp _currentEntry by running UpdateRows (already done via Show)
+        local btn = ns.FriendsViewer.rows[2].removeBtn
+        local onClick = btn:GetScript("OnClick")
+        onClick(btn)
+
+        expect(captured).toNotBeNil()
+        expect(captured.dialog).toBe("BETTERFRIENDS_REMOVE_FRIEND")
+        expect(captured.data).toBe("blob-thrall")
+    end)
+end)
+
+describe("Utils: GetClassIcon", function()
+    it("should return atlas markup for a known class token", function()
+        local ns = loadAll()
+        local markup = ns.Utils.GetClassIcon("PALADIN")
+        expect(markup).toContain("classicon-paladin")
+    end)
+
+    it("should return empty string for nil or empty class token", function()
+        local ns = loadAll()
+        expect(ns.Utils.GetClassIcon(nil)).toBe("")
+        expect(ns.Utils.GetClassIcon("")).toBe("")
     end)
 end)
 

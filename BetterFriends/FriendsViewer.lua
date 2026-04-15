@@ -78,12 +78,34 @@ function ns.FriendsViewer:Create()
         hoverTex:SetColorTexture(0.3, 0.6, 1.0, 0.12)
         hoverTex:Hide()
 
+        -- Inline "X" remove button, anchored to the right edge. Hidden
+        -- by default; shown in OnEnter, hidden in OnLeave. Clicking it
+        -- fires the same confirmation dialog as the context-menu Remove.
+        local removeBtn = CreateFrame("Button", nil, row)
+        removeBtn:SetSize(18, 18)
+        removeBtn:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+        removeBtn:SetNormalTexture("Interface\\Buttons\\UI-StopButton")
+        removeBtn:SetHighlightTexture("Interface\\Buttons\\UI-StopButton")
+        removeBtn:Hide()
+        local rowIdxForRemove = i
+        removeBtn:SetScript("OnClick", function()
+            local rd = ns.FriendsViewer.rows[rowIdxForRemove]
+            if rd and rd._currentEntry and not rd._currentEntry._isHeader then
+                local entry = rd._currentEntry
+                local displayName = entry.friend.characterName or entry.nameRealm
+                if StaticPopup_Show then
+                    StaticPopup_Show("BETTERFRIENDS_REMOVE_FRIEND", displayName, nil, entry.nameRealm)
+                end
+            end
+        end)
+
         local rowIdxForHover = i
         row:SetScript("OnEnter", function()
             hoverTex:Show()
             local rd = ns.FriendsViewer.rows[rowIdxForHover]
             if rd and rd._currentEntry and not rd._currentEntry._isHeader then
                 ns.FriendsViewer:ShowHoverTooltip(rd._currentEntry, row)
+                if rd.removeBtn then rd.removeBtn:Show() end
             end
         end)
         row:SetScript("OnLeave", function()
@@ -91,6 +113,8 @@ function ns.FriendsViewer:Create()
             if GameTooltip and GameTooltip.Hide then
                 GameTooltip:Hide()
             end
+            local rd = ns.FriendsViewer.rows[rowIdxForHover]
+            if rd and rd.removeBtn then rd.removeBtn:Hide() end
         end)
 
         -- Right-click opens a per-friend context menu (Whisper, Invite,
@@ -108,7 +132,10 @@ function ns.FriendsViewer:Create()
 
         local line1 = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         line1:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -2)
+        -- Leave room on the right for the remove button
+        line1:SetPoint("TOPRIGHT", row, "TOPRIGHT", -32, -2)
         line1:SetJustifyH("LEFT")
+        line1:SetWordWrap(false)
 
         local line2 = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         line2:SetPoint("TOPLEFT", line1, "BOTTOMLEFT", 0, -2)
@@ -122,6 +149,7 @@ function ns.FriendsViewer:Create()
             row = row,
             bgTex = bgTex,
             hoverTex = hoverTex,
+            removeBtn = removeBtn,
             line1 = line1,
             line2 = line2,
             line3 = line3,
@@ -448,6 +476,7 @@ function ns.FriendsViewer:UpdateRows()
             rowData.line2:SetText("")
             rowData.line3:SetText("")
             if rowData.hoverTex then rowData.hoverTex:Hide() end
+            if rowData.removeBtn then rowData.removeBtn:Hide() end
             rowData.row:EnableMouse(false)
             rowData.row:Show()
         elseif entry then
@@ -455,13 +484,14 @@ function ns.FriendsViewer:UpdateRows()
             local friend = entry.friend
             local liveStatus = entry.liveStatus
 
-            -- Line 1: class-colored name  •  Role  •  BattleTag
+            -- Line 1: role icon  class icon  class-colored name  [role]  BattleTag
+            local roleIcon = friend.role and ns.Utils.GetRoleIcon(friend.role) or ""
+            local classIcon = ns.Utils.GetClassIcon(friend.className)
             local coloredName = ns.Utils.GetClassColoredName(friend.characterName, friend.className)
-            local parts = { coloredName }
-            if friend.role then
-                local roleName = ns.Utils.GetRoleDisplayName(friend.role)
-                table.insert(parts, "|cFFAAAAAA[" .. roleName .. "]|r")
-            end
+            local leading = ""
+            if roleIcon ~= "" then leading = leading .. roleIcon .. " " end
+            if classIcon ~= "" then leading = leading .. classIcon .. " " end
+            local parts = { leading .. coloredName }
             if friend.bnetTag then
                 table.insert(parts, "|cFFAAAAAA" .. friend.bnetTag .. "|r")
             else
@@ -469,7 +499,7 @@ function ns.FriendsViewer:UpdateRows()
             end
             rowData.line1:SetText(table.concat(parts, "  "))
 
-            -- Line 2: online status (green) or offline (red)
+            -- Line 2: online status (green) or offline with relative last-seen
             if entry._isOnline and liveStatus then
                 local statusText = "|cFF40FF40Online|r - " .. (liveStatus.currentCharacter or "?")
                 if liveStatus.currentClass then
@@ -480,10 +510,14 @@ function ns.FriendsViewer:UpdateRows()
                 end
                 rowData.line2:SetText(statusText)
             else
-                rowData.line2:SetText("|cFFFF4444Offline|r")
+                local offlineText = "|cFFFF4444Offline|r"
+                if friend.lastSeenTimestamp then
+                    offlineText = offlineText .. " - last seen " .. ns.Utils.FormatRelativeTime(friend.lastSeenTimestamp)
+                end
+                rowData.line2:SetText(offlineText)
             end
 
-            -- Line 3: key stats
+            -- Line 3: key stats, with relative "met" time
             local statsText = (friend.keysCompleted or 0) .. " keys together"
             if friend.highestKeyLevel then
                 statsText = statsText .. " | Best: +" .. friend.highestKeyLevel .. " " .. (friend.highestKeyDungeon or "")
@@ -491,11 +525,16 @@ function ns.FriendsViewer:UpdateRows()
             if friend.addedKeyLevel and friend.addedDungeon then
                 local dateStr = ""
                 if friend.addedTimestamp then
-                    dateStr = " (" .. ns.Utils.FormatTimestamp(friend.addedTimestamp) .. ")"
+                    dateStr = " (" .. ns.Utils.FormatRelativeTime(friend.addedTimestamp) .. ")"
                 end
                 statsText = statsText .. " | Met: +" .. friend.addedKeyLevel .. " " .. friend.addedDungeon .. dateStr
             end
             rowData.line3:SetText(statsText)
+
+            -- Remove button stays hidden until the user hovers the row;
+            -- ensure it's reset here in case this slot previously held a
+            -- header (which would have called Hide() already but be safe).
+            if rowData.removeBtn then rowData.removeBtn:Hide() end
 
             rowData.row:Show()
         else

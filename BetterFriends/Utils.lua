@@ -31,6 +31,15 @@ function ns.Utils.GetRoleIcon(role)
     return ""
 end
 
+-- Class crest inline markup. Blizzard provides one atlas per class as
+-- "classicon-<lowercasetoken>" (e.g. classicon-warrior, classicon-deathknight).
+-- Returns "" for unknown tokens so callers can unconditionally concat.
+function ns.Utils.GetClassIcon(classToken)
+    if not classToken or classToken == "" then return "" end
+    local atlas = "classicon-" .. string.lower(classToken)
+    return CreateAtlasMarkup(atlas, 16, 16)
+end
+
 function ns.Utils.GetRoleDisplayName(role)
     local names = {
         TANK = "Tank",
