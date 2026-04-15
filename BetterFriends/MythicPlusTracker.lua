@@ -66,7 +66,7 @@ ns:RegisterEvent("CHALLENGE_MODE_COMPLETED", ns.MythicPlusTracker, function(self
         for _, member in ipairs(members) do
             DebugPrint("  Member:", member.name, "-", member.nameRealm)
             if ns.Data:IsFriend(member.nameRealm) then
-                ns.Data:UpdateFriendKeyStats(member.nameRealm, dungeonName, level)
+                ns.Data:UpdateFriendKeyStats(member.nameRealm, dungeonName, level, onTime)
                 DebugPrint("    Updated stats for tracked friend")
             end
         end

@@ -62,8 +62,22 @@ function FrameMethods:StopMovingOrSizing() end
 function FrameMethods:GetCenter() return 500, 500 end
 function FrameMethods:GetEffectiveScale() return 1 end
 function FrameMethods:RegisterForClicks(...) end
-function FrameMethods:SetOwner(...) end
-function FrameMethods:AddLine(...) end
+function FrameMethods:SetOwner(owner, anchor)
+    self._tooltipOwner = owner
+    self._tooltipAnchor = anchor
+    self._tooltipLines = {}
+end
+function FrameMethods:AddLine(text, r, g, b, wrap)
+    self._tooltipLines = self._tooltipLines or {}
+    table.insert(self._tooltipLines, { text = text, kind = "single" })
+end
+function FrameMethods:AddDoubleLine(left, right, lr, lg, lb, rr, rg, rb)
+    self._tooltipLines = self._tooltipLines or {}
+    table.insert(self._tooltipLines, { left = left, right = right, kind = "double" })
+end
+function FrameMethods:ClearLines()
+    self._tooltipLines = {}
+end
 
 -- FontString mock methods
 function FrameMethods:SetText(text) self._text = text end

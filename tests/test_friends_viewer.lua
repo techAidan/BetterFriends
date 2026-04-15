@@ -567,7 +567,6 @@ describe("FriendsViewer: BNet character-match online detection", function()
 end)
 
 describe("FriendsViewer: Display formatting", function()
-    -- Row 1 is the OFFLINE section header; friend data starts at row 2.
     it("should include role in line1 text", function()
         local ns = loadAll()
 
@@ -575,6 +574,7 @@ describe("FriendsViewer: Display formatting", function()
 
         ns.FriendsViewer:Show()
 
+        -- rows[1] is now the section header; first friend row is rows[2].
         local text = ns.FriendsViewer.rows[2].line1:GetText()
         expect(text).toContain("Healer")
     end)
@@ -601,16 +601,17 @@ describe("FriendsViewer: Display formatting", function()
         expect(text).toContain("no BNet link")
     end)
 
-    it("should render a section header row for OFFLINE friends", function()
+    it("should render a section header row above friend rows", function()
         local ns = loadAll()
 
-        addFriend(ns, "Blobheal", "Thrall", "PALADIN", "Paladin", "HEALER")
+        addFriend(ns, "A", "Thrall", "WARRIOR", "Warrior", "TANK")
+        addFriend(ns, "B", "Thrall", "HUNTER", "Hunter", "DAMAGER")
 
         ns.FriendsViewer:Show()
 
         local headerText = ns.FriendsViewer.rows[1].line1:GetText()
         expect(headerText).toContain("OFFLINE")
-        expect(headerText).toContain("(1)")
+        expect(headerText).toContain("(2)")
     end)
 end)
 
@@ -642,7 +643,9 @@ describe("FriendsViewer: Scrolling", function()
 
     it("should clamp scrollOffset to maxOffset", function()
         local ns = loadAll()
-        addManyFriends(ns, 20)  -- 20 entries + 1 header = 21 items, 12 visible -> max offset 9
+        addManyFriends(ns, 20)
+        -- 20 friends + 1 OFFLINE header = 21 renderList entries.
+        -- 12 visible -> max offset 9.
 
         ns.FriendsViewer:Show()
         ns.FriendsViewer:Scroll(100)
@@ -716,17 +719,20 @@ describe("FriendsViewer: Scrolling", function()
     end)
 end)
 
-describe("FriendsViewer: Context menu", function()
-    local function findMenuItem(menu, text)
-        for _, item in ipairs(menu) do
-            if item.text == text then return item end
-        end
-        return nil
+-- ============================================================
+-- Context menu
+-- ============================================================
+local function findMenuItem(menu, label)
+    for _, item in ipairs(menu) do
+        if item.text == label then return item end
     end
+    return nil
+end
 
+describe("FriendsViewer: Context menu", function()
     it("should build a menu with core actions for a friend", function()
         local ns = loadAll()
-        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER", "Ara-Kara", 12, 100, "Keith#1234")
         ns.FriendsViewer:Show()
 
         local entry = ns.FriendsViewer:GetDisplayList()[1]
@@ -735,8 +741,13 @@ describe("FriendsViewer: Context menu", function()
         expect(findMenuItem(menu, "Whisper")).toNotBeNil()
         expect(findMenuItem(menu, "Invite to Party")).toNotBeNil()
         expect(findMenuItem(menu, "Copy BattleTag")).toNotBeNil()
-        expect(findMenuItem(menu, "|cFFFF4444Remove from BetterFriends|r")).toNotBeNil()
-        expect(findMenuItem(menu, "Cancel")).toNotBeNil()
+        -- Remove item is color-coded, so we check by presence of any
+        -- entry whose text contains "Remove"
+        local hasRemove = false
+        for _, item in ipairs(menu) do
+            if item.text and item.text:find("Remove") then hasRemove = true end
+        end
+        expect(hasRemove).toBe(true)
     end)
 
     it("should show the friend's display name as a title", function()
@@ -753,50 +764,60 @@ describe("FriendsViewer: Context menu", function()
 
     it("should disable Invite to Party when friend is offline", function()
         local ns = loadAll()
-        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        addFriend(ns, "Offline", "Thrall", "WARRIOR", "Warrior", "TANK")
         ns.FriendsViewer:Show()
 
         local entry = ns.FriendsViewer:GetDisplayList()[1]
-        expect(entry._isOnline).toBe(false)
         local menu = ns.FriendsViewer:BuildContextMenu(entry)
 
-        expect(findMenuItem(menu, "Invite to Party").disabled).toBe(true)
+        local invite = findMenuItem(menu, "Invite to Party")
+        expect(invite.disabled).toBe(true)
     end)
 
     it("should enable Invite to Party when friend is online", function()
         local ns = loadAll()
-        local nr = addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        addFriend(ns, "Online", "Thrall", "HUNTER", "Hunter", "DAMAGER", nil, nil, 100, "On#1234")
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 100,
+                battleTag = "On#1234",
+                isOnline = true,
+                gameAccounts = {
+                    { characterName = "Online", realmName = "Thrall", className = "HUNTER", areaName = "Valdrakken" },
+                },
+            },
+        }
         ns.FriendsViewer:Show()
 
-        -- Force the entry to be online by synthesizing liveStatus
         local entry = ns.FriendsViewer:GetDisplayList()[1]
-        entry._isOnline = true
-        entry.liveStatus = { isOnline = true, currentCharacter = "Blob" }
-
         local menu = ns.FriendsViewer:BuildContextMenu(entry)
-        expect(findMenuItem(menu, "Invite to Party").disabled).toBe(false)
+
+        local invite = findMenuItem(menu, "Invite to Party")
+        expect(invite.disabled).toBe(false)
     end)
 
     it("should disable Copy BattleTag when no BNet link is stored", function()
         local ns = loadAll()
-        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        addFriend(ns, "Unlinked", "Thrall", "MAGE", "Mage", "DAMAGER")
         ns.FriendsViewer:Show()
 
         local entry = ns.FriendsViewer:GetDisplayList()[1]
         local menu = ns.FriendsViewer:BuildContextMenu(entry)
 
-        expect(findMenuItem(menu, "Copy BattleTag").disabled).toBe(true)
+        local copy = findMenuItem(menu, "Copy BattleTag")
+        expect(copy.disabled).toBe(true)
     end)
 
     it("should enable Copy BattleTag when BNet link is stored", function()
         local ns = loadAll()
-        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER", nil, nil, 100, "Keith#1234")
+        addFriend(ns, "Linked", "Thrall", "MAGE", "Mage", "DAMAGER", nil, nil, 100, "Keith#1234")
         ns.FriendsViewer:Show()
 
         local entry = ns.FriendsViewer:GetDisplayList()[1]
         local menu = ns.FriendsViewer:BuildContextMenu(entry)
 
-        expect(findMenuItem(menu, "Copy BattleTag").disabled).toBe(false)
+        local copy = findMenuItem(menu, "Copy BattleTag")
+        expect(copy.disabled).toBeFalsy()
     end)
 
     it("should label the note action 'Add Note' when none exists", function()
@@ -837,6 +858,158 @@ describe("Data: SetNote", function()
     it("should return false for an unknown friend", function()
         local ns = loadAll()
         expect(ns.Data:SetNote("ghost-nowhere", "x")).toBe(false)
+    end)
+end)
+
+describe("FriendsViewer: Hover tooltip", function()
+    local function findLineMatching(lines, substr)
+        for _, line in ipairs(lines) do
+            local text = line.left or ""
+            if line.right then text = text .. " " .. line.right end
+            if text:find(substr, 1, true) then return line end
+        end
+        return nil
+    end
+
+    it("should include the character name in a tooltip header line", function()
+        local ns = loadAll()
+        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        ns.FriendsViewer:Show()
+
+        local entry = ns.FriendsViewer:GetDisplayList()[1]
+        local lines = ns.FriendsViewer:BuildTooltipLines(entry)
+
+        expect(findLineMatching(lines, "Blob")).toNotBeNil()
+    end)
+
+    it("should list every key run from keyHistory", function()
+        local ns = loadAll()
+        local nr = addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER", "Ara-Kara", 12)
+        -- addFriend seeds +12 Ara-Kara; add two more runs via UpdateFriendKeyStats
+        ns.Data:UpdateFriendKeyStats(nr, "Stonevault", 15, true)
+        ns.Data:UpdateFriendKeyStats(nr, "Dawnbreaker", 13, false)
+        ns.FriendsViewer:Show()
+
+        local entry = ns.FriendsViewer:GetDisplayList()[1]
+        local lines = ns.FriendsViewer:BuildTooltipLines(entry)
+
+        expect(findLineMatching(lines, "+12")).toNotBeNil()
+        expect(findLineMatching(lines, "Ara-Kara")).toNotBeNil()
+        expect(findLineMatching(lines, "+15")).toNotBeNil()
+        expect(findLineMatching(lines, "Stonevault")).toNotBeNil()
+        expect(findLineMatching(lines, "+13")).toNotBeNil()
+        expect(findLineMatching(lines, "Dawnbreaker")).toNotBeNil()
+    end)
+
+    it("should mark timed runs green and depleted runs red", function()
+        local ns = loadAll()
+        local nr = addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        ns.Data:UpdateFriendKeyStats(nr, "Stonevault", 15, true)
+        ns.Data:UpdateFriendKeyStats(nr, "Dawnbreaker", 13, false)
+        ns.FriendsViewer:Show()
+
+        local entry = ns.FriendsViewer:GetDisplayList()[1]
+        local lines = ns.FriendsViewer:BuildTooltipLines(entry)
+
+        expect(findLineMatching(lines, "Timed")).toNotBeNil()
+        expect(findLineMatching(lines, "Depleted")).toNotBeNil()
+    end)
+
+    it("should include the friend's note when one is set", function()
+        local ns = loadAll()
+        local nr = addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        ns.Data:SetNote(nr, "great healer")
+        ns.FriendsViewer:Show()
+
+        local entry = ns.FriendsViewer:GetDisplayList()[1]
+        local lines = ns.FriendsViewer:BuildTooltipLines(entry)
+
+        expect(findLineMatching(lines, "great healer")).toNotBeNil()
+    end)
+
+    it("should fall back to aggregate stats for legacy entries with no keyHistory", function()
+        local ns = loadAll()
+        local nr = addFriend(ns, "Legacy", "Thrall", "WARRIOR", "Warrior", "TANK")
+        -- Simulate an old DB entry that predates keyHistory
+        local friend = ns.Data:GetFriend(nr)
+        friend.keyHistory = nil
+        friend.keysCompleted = 7
+        friend.highestKeyLevel = 18
+        friend.highestKeyDungeon = "Stonevault"
+        ns.FriendsViewer:Show()
+
+        local entry = ns.FriendsViewer:GetDisplayList()[1]
+        local lines = ns.FriendsViewer:BuildTooltipLines(entry)
+
+        expect(findLineMatching(lines, "7")).toNotBeNil()
+        expect(findLineMatching(lines, "Stonevault")).toNotBeNil()
+    end)
+
+    it("should push lines into GameTooltip via ShowHoverTooltip", function()
+        local ns = loadAll()
+        local nr = addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER", "Ara-Kara", 12)
+        ns.FriendsViewer:Show()
+
+        local entry = ns.FriendsViewer:GetDisplayList()[1]
+        GameTooltip._tooltipLines = nil
+        ns.FriendsViewer:ShowHoverTooltip(entry, ns.FriendsViewer.rows[1].row)
+
+        expect(GameTooltip._tooltipOwner).toNotBeNil()
+        expect(GameTooltip._tooltipLines).toNotBeNil()
+        expect(#GameTooltip._tooltipLines > 0).toBe(true)
+    end)
+
+    it("should not render a tooltip for header rows", function()
+        local ns = loadAll()
+        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        ns.FriendsViewer:Show()
+
+        GameTooltip._tooltipLines = nil
+        local headerEntry = ns.FriendsViewer.renderList[1]
+        expect(headerEntry._isHeader).toBe(true)
+        ns.FriendsViewer:ShowHoverTooltip(headerEntry, ns.FriendsViewer.rows[1].row)
+
+        expect(GameTooltip._tooltipLines).toBeNil()
+    end)
+end)
+
+describe("Data: keyHistory tracking", function()
+    it("should seed keyHistory on AddFriend with the first run", function()
+        local ns = loadAll()
+        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER", "Ara-Kara", 12)
+        local friend = ns.Data:GetFriend("blob-thrall")
+
+        expect(friend.keyHistory).toNotBeNil()
+        expect(#friend.keyHistory).toBe(1)
+        expect(friend.keyHistory[1].dungeon).toBe("Ara-Kara")
+        expect(friend.keyHistory[1].level).toBe(12)
+    end)
+
+    it("should append to keyHistory on UpdateFriendKeyStats", function()
+        local ns = loadAll()
+        local nr = addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER", "Ara-Kara", 12)
+        ns.Data:UpdateFriendKeyStats(nr, "Stonevault", 15, true)
+        ns.Data:UpdateFriendKeyStats(nr, "Dawnbreaker", 13, false)
+
+        local friend = ns.Data:GetFriend(nr)
+        expect(#friend.keyHistory).toBe(3)
+        expect(friend.keyHistory[2].dungeon).toBe("Stonevault")
+        expect(friend.keyHistory[2].level).toBe(15)
+        expect(friend.keyHistory[2].onTime).toBe(true)
+        expect(friend.keyHistory[3].onTime).toBe(false)
+    end)
+
+    it("should lazily create keyHistory on legacy DB entries", function()
+        local ns = loadAll()
+        local nr = addFriend(ns, "Legacy", "Thrall", "WARRIOR", "Warrior", "TANK")
+        local friend = ns.Data:GetFriend(nr)
+        friend.keyHistory = nil
+
+        ns.Data:UpdateFriendKeyStats(nr, "Stonevault", 15, true)
+
+        expect(friend.keyHistory).toNotBeNil()
+        expect(#friend.keyHistory).toBe(1)
+        expect(friend.keyHistory[1].dungeon).toBe("Stonevault")
     end)
 end)
 

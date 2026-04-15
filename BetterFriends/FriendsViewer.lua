@@ -78,8 +78,20 @@ function ns.FriendsViewer:Create()
         hoverTex:SetColorTexture(0.3, 0.6, 1.0, 0.12)
         hoverTex:Hide()
 
-        row:SetScript("OnEnter", function() hoverTex:Show() end)
-        row:SetScript("OnLeave", function() hoverTex:Hide() end)
+        local rowIdxForHover = i
+        row:SetScript("OnEnter", function()
+            hoverTex:Show()
+            local rd = ns.FriendsViewer.rows[rowIdxForHover]
+            if rd and rd._currentEntry and not rd._currentEntry._isHeader then
+                ns.FriendsViewer:ShowHoverTooltip(rd._currentEntry, row)
+            end
+        end)
+        row:SetScript("OnLeave", function()
+            hoverTex:Hide()
+            if GameTooltip and GameTooltip.Hide then
+                GameTooltip:Hide()
+            end
+        end)
 
         -- Right-click opens a per-friend context menu (Whisper, Invite,
         -- Copy BattleTag, Remove, Add Note). Captured via OnMouseUp since
@@ -411,8 +423,8 @@ function ns.FriendsViewer:UpdateRows()
         if not rowData then break end
 
         local entry = renderList[i + offset]
-        -- Remember which entry is currently in this row slot so future
-        -- row interactions can look it up without re-deriving it.
+        -- Remember which entry is currently in this row slot so the
+        -- right-click handler can look it up without re-deriving it.
         rowData._currentEntry = entry
 
         -- Zebra stripe: even visible rows get a subtle tint, UNLESS the
@@ -515,6 +527,97 @@ end
 
 function ns.FriendsViewer:GetOnlineCount()
     return self._onlineCount or 0
+end
+
+-- ============================================================
+-- Hover tooltip: rich per-friend key history
+-- ============================================================
+
+-- Build an array of tooltip lines for a given friend entry. Returned as
+-- { { left = "...", right = "..." }, ... } so tests can inspect the
+-- structure without needing a real GameTooltip. ShowHoverTooltip renders
+-- this into Blizzard's GameTooltip.
+function ns.FriendsViewer:BuildTooltipLines(entry)
+    local friend = entry.friend
+    local lines = {}
+
+    -- Header: class-colored name
+    local coloredName = ns.Utils.GetClassColoredName(friend.characterName, friend.className)
+    table.insert(lines, { left = coloredName, isHeader = true })
+
+    -- Subheader: realm + role
+    local sub = friend.realm or ""
+    if friend.role then
+        local roleName = ns.Utils.GetRoleDisplayName(friend.role)
+        if sub ~= "" then sub = sub .. "  -  " end
+        sub = sub .. roleName
+    end
+    if sub ~= "" then
+        table.insert(lines, { left = "|cFFAAAAAA" .. sub .. "|r" })
+    end
+
+    -- Note (if present)
+    if friend.notes and friend.notes ~= "" then
+        table.insert(lines, { left = "|cFFFFDD88Note:|r " .. friend.notes })
+    end
+
+    -- Blank separator
+    table.insert(lines, { left = " " })
+
+    -- Key history: every run we've tracked with this friend
+    local history = friend.keyHistory
+    if history and #history > 0 then
+        table.insert(lines, { left = "|cFFFFD100Keys Together:|r" })
+        for _, run in ipairs(history) do
+            local left = "  +" .. (run.level or "?") .. "  " .. (run.dungeon or "?")
+            local right
+            if run.onTime == true then
+                right = "|cFF40FF40Timed|r"
+            elseif run.onTime == false then
+                right = "|cFFFF4444Depleted|r"
+            else
+                right = "|cFF888888-|r"
+            end
+            if run.timestamp and ns.Utils and ns.Utils.FormatTimestamp then
+                right = right .. "  " .. ns.Utils.FormatTimestamp(run.timestamp)
+            end
+            table.insert(lines, { left = left, right = right })
+        end
+    else
+        -- Legacy entry with no history — fall back to the aggregate stats
+        -- stored on the friend record.
+        table.insert(lines, { left = "|cFFFFD100Keys Together:|r " .. (friend.keysCompleted or 0) })
+        if friend.highestKeyLevel and friend.highestKeyDungeon then
+            table.insert(lines, {
+                left = "|cFFAAAAAABest:|r +" .. friend.highestKeyLevel .. " " .. friend.highestKeyDungeon,
+            })
+        end
+    end
+
+    return lines
+end
+
+-- Render the tooltip at the anchor frame using GameTooltip.
+function ns.FriendsViewer:ShowHoverTooltip(entry, anchorFrame)
+    if not entry or entry._isHeader then return end
+    if not GameTooltip then return end
+
+    local lines = self:BuildTooltipLines(entry)
+
+    GameTooltip:SetOwner(anchorFrame, "ANCHOR_RIGHT")
+    if GameTooltip.ClearLines then GameTooltip:ClearLines() end
+    for _, line in ipairs(lines) do
+        if line.right then
+            if GameTooltip.AddDoubleLine then
+                GameTooltip:AddDoubleLine(line.left, line.right, 1, 1, 1, 1, 1, 1)
+            else
+                GameTooltip:AddLine(line.left .. "  " .. line.right)
+            end
+        else
+            GameTooltip:AddLine(line.left, 1, 1, 1, true)
+        end
+    end
+    GameTooltip:Show()
 end
 
 -- ============================================================
