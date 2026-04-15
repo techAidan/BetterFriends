@@ -716,4 +716,128 @@ describe("FriendsViewer: Scrolling", function()
     end)
 end)
 
+describe("FriendsViewer: Context menu", function()
+    local function findMenuItem(menu, text)
+        for _, item in ipairs(menu) do
+            if item.text == text then return item end
+        end
+        return nil
+    end
+
+    it("should build a menu with core actions for a friend", function()
+        local ns = loadAll()
+        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        ns.FriendsViewer:Show()
+
+        local entry = ns.FriendsViewer:GetDisplayList()[1]
+        local menu = ns.FriendsViewer:BuildContextMenu(entry)
+
+        expect(findMenuItem(menu, "Whisper")).toNotBeNil()
+        expect(findMenuItem(menu, "Invite to Party")).toNotBeNil()
+        expect(findMenuItem(menu, "Copy BattleTag")).toNotBeNil()
+        expect(findMenuItem(menu, "|cFFFF4444Remove from BetterFriends|r")).toNotBeNil()
+        expect(findMenuItem(menu, "Cancel")).toNotBeNil()
+    end)
+
+    it("should show the friend's display name as a title", function()
+        local ns = loadAll()
+        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        ns.FriendsViewer:Show()
+
+        local entry = ns.FriendsViewer:GetDisplayList()[1]
+        local menu = ns.FriendsViewer:BuildContextMenu(entry)
+
+        expect(menu[1].text).toBe("Blob")
+        expect(menu[1].isTitle).toBe(true)
+    end)
+
+    it("should disable Invite to Party when friend is offline", function()
+        local ns = loadAll()
+        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        ns.FriendsViewer:Show()
+
+        local entry = ns.FriendsViewer:GetDisplayList()[1]
+        expect(entry._isOnline).toBe(false)
+        local menu = ns.FriendsViewer:BuildContextMenu(entry)
+
+        expect(findMenuItem(menu, "Invite to Party").disabled).toBe(true)
+    end)
+
+    it("should enable Invite to Party when friend is online", function()
+        local ns = loadAll()
+        local nr = addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        ns.FriendsViewer:Show()
+
+        -- Force the entry to be online by synthesizing liveStatus
+        local entry = ns.FriendsViewer:GetDisplayList()[1]
+        entry._isOnline = true
+        entry.liveStatus = { isOnline = true, currentCharacter = "Blob" }
+
+        local menu = ns.FriendsViewer:BuildContextMenu(entry)
+        expect(findMenuItem(menu, "Invite to Party").disabled).toBe(false)
+    end)
+
+    it("should disable Copy BattleTag when no BNet link is stored", function()
+        local ns = loadAll()
+        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        ns.FriendsViewer:Show()
+
+        local entry = ns.FriendsViewer:GetDisplayList()[1]
+        local menu = ns.FriendsViewer:BuildContextMenu(entry)
+
+        expect(findMenuItem(menu, "Copy BattleTag").disabled).toBe(true)
+    end)
+
+    it("should enable Copy BattleTag when BNet link is stored", function()
+        local ns = loadAll()
+        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER", nil, nil, 100, "Keith#1234")
+        ns.FriendsViewer:Show()
+
+        local entry = ns.FriendsViewer:GetDisplayList()[1]
+        local menu = ns.FriendsViewer:BuildContextMenu(entry)
+
+        expect(findMenuItem(menu, "Copy BattleTag").disabled).toBe(false)
+    end)
+
+    it("should label the note action 'Add Note' when none exists", function()
+        local ns = loadAll()
+        addFriend(ns, "New", "Thrall", "PRIEST", "Priest", "HEALER")
+        ns.FriendsViewer:Show()
+
+        local entry = ns.FriendsViewer:GetDisplayList()[1]
+        local menu = ns.FriendsViewer:BuildContextMenu(entry)
+
+        expect(findMenuItem(menu, "Add Note")).toNotBeNil()
+        expect(findMenuItem(menu, "Edit Note")).toBeNil()
+    end)
+
+    it("should label the note action 'Edit Note' when one already exists", function()
+        local ns = loadAll()
+        local nr = addFriend(ns, "Noted", "Thrall", "PRIEST", "Priest", "HEALER")
+        ns.Data:SetNote(nr, "great tank")
+        ns.FriendsViewer:Show()
+
+        local entry = ns.FriendsViewer:GetDisplayList()[1]
+        local menu = ns.FriendsViewer:BuildContextMenu(entry)
+
+        expect(findMenuItem(menu, "Edit Note")).toNotBeNil()
+        expect(findMenuItem(menu, "Add Note")).toBeNil()
+    end)
+end)
+
+describe("Data: SetNote", function()
+    it("should store a note on a tracked friend", function()
+        local ns = loadAll()
+        addFriend(ns, "Blob", "Thrall", "PALADIN", "Paladin", "HEALER")
+        local ok = ns.Data:SetNote("blob-thrall", "best healer")
+        expect(ok).toBe(true)
+        expect(ns.Data:GetFriend("blob-thrall").notes).toBe("best healer")
+    end)
+
+    it("should return false for an unknown friend", function()
+        local ns = loadAll()
+        expect(ns.Data:SetNote("ghost-nowhere", "x")).toBe(false)
+    end)
+end)
+
 exitWithResults()

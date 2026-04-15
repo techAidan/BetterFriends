@@ -111,3 +111,10 @@ function ns.Data:RemoveFriend(nameRealm)
     BetterFriendsDB.friends[nameRealm] = nil
     return true
 end
+
+function ns.Data:SetNote(nameRealm, note)
+    local friend = BetterFriendsDB.friends[nameRealm]
+    if not friend then return false end
+    friend.notes = note or ""
+    return true
+end

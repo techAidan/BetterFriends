@@ -81,6 +81,19 @@ function ns.FriendsViewer:Create()
         row:SetScript("OnEnter", function() hoverTex:Show() end)
         row:SetScript("OnLeave", function() hoverTex:Hide() end)
 
+        -- Right-click opens a per-friend context menu (Whisper, Invite,
+        -- Copy BattleTag, Remove, Add Note). Captured via OnMouseUp since
+        -- plain Frames (not Buttons) don't fire OnClick.
+        local rowIndex = i
+        row:SetScript("OnMouseUp", function(_, button)
+            if button == "RightButton" then
+                local rd = ns.FriendsViewer.rows[rowIndex]
+                if rd and rd._currentEntry and not rd._currentEntry._isHeader then
+                    ns.FriendsViewer:ShowContextMenu(rd._currentEntry, row)
+                end
+            end
+        end)
+
         local line1 = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         line1:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -2)
         line1:SetJustifyH("LEFT")
@@ -503,3 +516,203 @@ end
 function ns.FriendsViewer:GetOnlineCount()
     return self._onlineCount or 0
 end
+
+-- ============================================================
+-- Right-click context menu
+-- ============================================================
+
+-- Build the list of menu entries for a given friend entry. Returned as
+-- plain data (an array of { text, func, disabled, notCheckable }) so
+-- tests can verify the menu without actually rendering a dropdown.
+-- ShowContextMenu feeds this into Blizzard's EasyMenu.
+function ns.FriendsViewer:BuildContextMenu(entry)
+    local friend = entry.friend
+    local nameRealm = entry.nameRealm
+    local liveStatus = entry.liveStatus
+    local isOnline = entry._isOnline
+    local currentCharacter = liveStatus and liveStatus.currentCharacter
+
+    local displayName = friend.characterName or nameRealm
+    local menu = {
+        { text = displayName, isTitle = true, notCheckable = true },
+    }
+
+    -- Whisper — target the current character if we know it (online), or
+    -- the stored character otherwise. Disabled if we have nothing to
+    -- send to.
+    local whisperTarget = currentCharacter or friend.characterName
+    table.insert(menu, {
+        text = "Whisper",
+        notCheckable = true,
+        disabled = not whisperTarget,
+        func = function()
+            if whisperTarget and ChatFrame_SendTell then
+                ChatFrame_SendTell(whisperTarget)
+            end
+        end,
+    })
+
+    -- Invite to Party — only makes sense if they're online
+    table.insert(menu, {
+        text = "Invite to Party",
+        notCheckable = true,
+        disabled = not (isOnline and whisperTarget),
+        func = function()
+            if not whisperTarget then return end
+            if C_PartyInfo and C_PartyInfo.InviteUnit then
+                C_PartyInfo.InviteUnit(whisperTarget)
+            elseif InviteUnit then
+                InviteUnit(whisperTarget)
+            end
+        end,
+    })
+
+    -- Copy BattleTag — shows a popup with a selectable edit box so the
+    -- user can Ctrl+C. Disabled if no link.
+    table.insert(menu, {
+        text = "Copy BattleTag",
+        notCheckable = true,
+        disabled = not friend.bnetTag,
+        func = function()
+            if friend.bnetTag and StaticPopup_Show then
+                StaticPopup_Show("BETTERFRIENDS_COPY_BTAG", friend.bnetTag, nil, friend.bnetTag)
+            end
+        end,
+    })
+
+    -- Add/Edit Note — opens a text entry popup.
+    local hasNote = friend.notes and friend.notes ~= ""
+    table.insert(menu, {
+        text = hasNote and "Edit Note" or "Add Note",
+        notCheckable = true,
+        func = function()
+            if StaticPopup_Show then
+                StaticPopup_Show("BETTERFRIENDS_EDIT_NOTE", displayName, nil, {
+                    nameRealm = nameRealm,
+                    existingNote = friend.notes or "",
+                })
+            end
+        end,
+    })
+
+    -- Separator before the destructive action
+    table.insert(menu, { text = "", disabled = true, notCheckable = true })
+
+    -- Remove from tracking — confirmation popup.
+    table.insert(menu, {
+        text = "|cFFFF4444Remove from BetterFriends|r",
+        notCheckable = true,
+        func = function()
+            if StaticPopup_Show then
+                StaticPopup_Show("BETTERFRIENDS_REMOVE_FRIEND", displayName, nil, nameRealm)
+            end
+        end,
+    })
+
+    table.insert(menu, { text = "Cancel", notCheckable = true, func = function() end })
+
+    return menu
+end
+
+-- Render the context menu at the cursor. Uses Blizzard's EasyMenu.
+function ns.FriendsViewer:ShowContextMenu(entry, anchorFrame)
+    if not entry or entry._isHeader then return end
+    local menu = self:BuildContextMenu(entry)
+
+    -- Lazily create a dropdown menu frame — EasyMenu needs one to render
+    -- into. Parented to UIParent so it survives the viewer being hidden
+    -- (though in practice we only call this while the viewer is shown).
+    if not self._menuFrame then
+        self._menuFrame = CreateFrame("Frame", "BetterFriendsContextMenu", UIParent, "UIDropDownMenuTemplate")
+    end
+
+    if EasyMenu then
+        EasyMenu(menu, self._menuFrame, "cursor", 0, 0, "MENU")
+    end
+end
+
+-- ============================================================
+-- StaticPopup dialog registrations (executed at load time in WoW;
+-- guarded for tests where StaticPopupDialogs isn't populated by the
+-- mock but assignment is harmless).
+-- ============================================================
+StaticPopupDialogs = StaticPopupDialogs or {}
+
+StaticPopupDialogs["BETTERFRIENDS_REMOVE_FRIEND"] = {
+    text = "Remove %s from BetterFriends? This clears all tracked key history for this character.",
+    button1 = "Remove",
+    button2 = "Cancel",
+    OnAccept = function(self, nameRealm)
+        if ns.Data:RemoveFriend(nameRealm) then
+            if ns.FriendsViewer and ns.FriendsViewer.RefreshData then
+                ns.FriendsViewer:RefreshData()
+            end
+        end
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+StaticPopupDialogs["BETTERFRIENDS_COPY_BTAG"] = {
+    text = "%s",
+    button1 = "Close",
+    hasEditBox = true,
+    editBoxWidth = 200,
+    OnShow = function(self, btag)
+        if self.editBox then
+            self.editBox:SetText(btag or "")
+            self.editBox:HighlightText()
+            self.editBox:SetFocus()
+        end
+    end,
+    EditBoxOnEnterPressed = function(self)
+        self:GetParent():Hide()
+    end,
+    EditBoxOnEscapePressed = function(self)
+        self:GetParent():Hide()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+StaticPopupDialogs["BETTERFRIENDS_EDIT_NOTE"] = {
+    text = "Note for %s:",
+    button1 = "Save",
+    button2 = "Cancel",
+    hasEditBox = true,
+    editBoxWidth = 260,
+    maxLetters = 200,
+    OnShow = function(self, data)
+        if self.editBox and data then
+            self.editBox:SetText(data.existingNote or "")
+            self.editBox:HighlightText()
+            self.editBox:SetFocus()
+            self._nameRealm = data.nameRealm
+        end
+    end,
+    OnAccept = function(self, data)
+        local text = self.editBox and self.editBox:GetText() or ""
+        local nameRealm = data and data.nameRealm
+        if nameRealm then
+            ns.Data:SetNote(nameRealm, text)
+            if ns.FriendsViewer and ns.FriendsViewer.RefreshData then
+                ns.FriendsViewer:RefreshData()
+            end
+        end
+    end,
+    EditBoxOnEnterPressed = function(self)
+        local parent = self:GetParent()
+        if parent.button1 then parent.button1:Click() end
+    end,
+    EditBoxOnEscapePressed = function(self)
+        self:GetParent():Hide()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
