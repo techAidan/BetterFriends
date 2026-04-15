@@ -60,13 +60,13 @@ describe("FriendsViewer: Create", function()
         expect(type(ns.FriendsViewer.rows)).toBe("table")
     end)
 
-    it("should set frame size to fit at least 12 rows", function()
+    it("should set frame size to accommodate all visible rows and scrollbar", function()
         local ns = loadAll()
 
         ns.FriendsViewer:Create()
 
         expect(ns.FriendsViewer.frame:GetWidth()).toBe(620)
-        expect(ns.FriendsViewer.frame:GetHeight()).toBe(560)
+        expect(ns.FriendsViewer.frame:GetHeight()).toBe(600)
     end)
 
     it("should enable mouse wheel for scrolling", function()
@@ -647,12 +647,13 @@ describe("FriendsViewer: Scrolling", function()
         local ns = loadAll()
         addManyFriends(ns, 20)
         -- 20 friends + 1 OFFLINE header = 21 renderList entries.
-        -- 12 visible -> max offset 9.
+        -- visibleRows visible -> maxOffset = 21 - visibleRows.
 
         ns.FriendsViewer:Show()
         ns.FriendsViewer:Scroll(100)
 
-        expect(ns.FriendsViewer.scrollOffset).toBe(9)
+        local expectedMax = 21 - ns.FriendsViewer.visibleRows
+        expect(ns.FriendsViewer.scrollOffset).toBe(expectedMax)
     end)
 
     it("should not scroll past 0", function()

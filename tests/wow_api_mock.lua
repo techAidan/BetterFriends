@@ -93,6 +93,14 @@ function FrameMethods:SetEnabled(v) self._enabled = v end
 function FrameMethods:IsEnabled() return self._enabled ~= false end
 function FrameMethods:Enable() self._enabled = true end
 function FrameMethods:Disable() self._enabled = false end
+
+-- Slider mock methods (UIPanelScrollBarTemplate)
+function FrameMethods:SetMinMaxValues(mn, mx) self._sliderMin = mn; self._sliderMax = mx end
+function FrameMethods:GetMinMaxValues() return self._sliderMin or 0, self._sliderMax or 0 end
+function FrameMethods:SetValue(v) self._sliderValue = v end
+function FrameMethods:GetValue() return self._sliderValue or 0 end
+function FrameMethods:SetValueStep(s) self._sliderStep = s end
+function FrameMethods:SetObeyStepOnDrag(v) end
 function FrameMethods:SetNormalTexture(t) end
 function FrameMethods:SetHighlightTexture(t) end
 function FrameMethods:SetPushedTexture(t) end

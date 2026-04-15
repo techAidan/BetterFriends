@@ -4,13 +4,27 @@ ns.FriendsViewer = {}
 ns.FriendsViewer.displayList = {}
 ns.FriendsViewer.rows = {}
 ns.FriendsViewer.scrollOffset = 0
-ns.FriendsViewer.visibleRows = 12
+ns.FriendsViewer.visibleRows = 11
+
+-- Row geometry. Rows tile seamlessly (stride == height) so the zebra
+-- stripes form one continuous alternating pattern with no gaps between
+-- them, matching the style used by Details!/WeakAuras/Raider.IO. The
+-- height has to comfortably fit three stacked lines (one Normal + two
+-- Small font strings) with internal padding, since there's no external
+-- gap to act as breathing room.
+local ROW_HEIGHT = 48
+local ROW_STRIDE = 48
+
+-- Section headers reuse the same row slot but offset their content
+-- downward, creating the illusion of extra whitespace above the header.
+-- The top HEADER_TOP_PAD pixels of the slot are left blank.
+local HEADER_TOP_PAD = 18
 
 function ns.FriendsViewer:Create()
     if self.frame then return end
 
     local frame = CreateFrame("Frame", "BetterFriendsViewerFrame", UIParent, "BackdropTemplate")
-    frame:SetSize(620, 560)
+    frame:SetSize(620, 600)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("HIGH")
     frame:SetMovable(true)
@@ -26,14 +40,24 @@ function ns.FriendsViewer:Create()
         ns.FriendsViewer:Scroll(-delta)
     end)
 
-    -- Dark background with border
+    -- Dark background with border. The DialogBox-Background tile has
+    -- baked-in transparency so a simple SetBackdropColor can't make it
+    -- fully opaque. Instead, lay a solid black Texture behind the
+    -- backdrop across the backdrop's inset area.
     frame:SetBackdrop({
         bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
         edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
         tile = true, tileSize = 32, edgeSize = 32,
         insets = { left = 8, right = 8, top = 8, bottom = 8 },
     })
-    frame:SetBackdropColor(0, 0, 0, 0.9)
+    frame:SetBackdropColor(0.05, 0.05, 0.08, 1)
+
+    local solidBg = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
+    solidBg:SetColorTexture(0.04, 0.04, 0.06, 1)
+    solidBg:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -8)
+    solidBg:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -8, 8)
+    self.solidBg = solidBg
+
     frame:Hide()
 
     -- Title text
@@ -56,12 +80,36 @@ function ns.FriendsViewer:Create()
     footer:SetTextColor(0.7, 0.7, 0.7)
     self.footerText = footer
 
-    -- Create visible rows (up to visibleRows)
+    -- Scrollbar on the right edge, using Blizzard's standard template
+    -- (slider with built-in up/down arrow buttons). Positioned in the
+    -- gutter between the row area and the backdrop border.
+    local scrollBar = CreateFrame("Slider", "BetterFriendsViewerScrollBar", frame, "UIPanelScrollBarTemplate")
+    scrollBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -28, -52)
+    scrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -28, 44)
+    scrollBar:SetMinMaxValues(0, 0)
+    scrollBar:SetValueStep(1)
+    scrollBar:SetValue(0)
+    scrollBar:SetObeyStepOnDrag(true)
+    -- Slider fires OnValueChanged both from user interaction and from our
+    -- own SetValue calls in UpdateRows. Guard against the self-triggered
+    -- case to avoid recursion.
+    scrollBar:SetScript("OnValueChanged", function(_, value)
+        local newOffset = math.floor(value + 0.5)
+        if newOffset ~= ns.FriendsViewer.scrollOffset then
+            ns.FriendsViewer.scrollOffset = newOffset
+            ns.FriendsViewer:UpdateRows()
+        end
+    end)
+    self.scrollBar = scrollBar
+
+    -- Create visible rows (up to visibleRows). Rows sit to the LEFT of
+    -- the scrollbar, not under it, so the row width has to leave a
+    -- ~24px gutter on the right.
     self.rows = {}
     for i = 1, self.visibleRows do
         local row = CreateFrame("Frame", nil, frame)
-        row:SetSize(580, 38)
-        row:SetPoint("TOP", title, "BOTTOM", 0, -12 - (i - 1) * 40)
+        row:SetSize(556, ROW_HEIGHT)
+        row:SetPoint("TOP", title, "BOTTOM", -12, -14 - (i - 1) * ROW_STRIDE)
         row:EnableMouse(true)
         row:Hide()
 
@@ -79,14 +127,14 @@ function ns.FriendsViewer:Create()
         hoverTex:Hide()
 
         -- Section header hairline: a 1px horizontal texture sitting just
-        -- under the header label. Hidden for normal rows; shown when the
-        -- row is rendering an ONLINE/OFFLINE divider. Looks much more
-        -- polished than the old "━━" character fake line.
+        -- BELOW the header label (not at the row bottom), so the label
+        -- and the line read as a single unit and the slot's lower area
+        -- becomes visual whitespace separating this section from the
+        -- first friend row below. Anchor is (re)set at render time once
+        -- we know where the header label ended up.
         local hlineTex = row:CreateTexture(nil, "ARTWORK")
-        hlineTex:SetColorTexture(0.35, 0.35, 0.40, 0.7)
+        hlineTex:SetColorTexture(0.4, 0.4, 0.45, 0.6)
         hlineTex:SetHeight(1)
-        hlineTex:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 8, 4)
-        hlineTex:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -8, 4)
         hlineTex:Hide()
 
         -- Inline "X" remove button, anchored to the right edge. Hidden
@@ -141,20 +189,24 @@ function ns.FriendsViewer:Create()
             end
         end)
 
+        -- line1 anchor is reset at render time: data rows put it near
+        -- the top of the slot, header rows push it down so the top of
+        -- the slot reads as whitespace above the section label.
         local line1 = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        line1:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -2)
-        -- Leave room on the right for the remove button
-        line1:SetPoint("TOPRIGHT", row, "TOPRIGHT", -32, -2)
         line1:SetJustifyH("LEFT")
         line1:SetWordWrap(false)
 
         local line2 = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        line2:SetPoint("TOPLEFT", line1, "BOTTOMLEFT", 0, -2)
+        line2:SetPoint("TOPLEFT", line1, "BOTTOMLEFT", 0, -3)
+        line2:SetPoint("TOPRIGHT", line1, "BOTTOMRIGHT", 0, -3)
         line2:SetJustifyH("LEFT")
+        line2:SetWordWrap(false)
 
         local line3 = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        line3:SetPoint("TOPLEFT", line2, "BOTTOMLEFT", 0, -1)
+        line3:SetPoint("TOPLEFT", line2, "BOTTOMLEFT", 0, -2)
+        line3:SetPoint("TOPRIGHT", line2, "BOTTOMRIGHT", 0, -2)
         line3:SetJustifyH("LEFT")
+        line3:SetWordWrap(false)
 
         self.rows[i] = {
             row = row,
@@ -440,6 +492,19 @@ function ns.FriendsViewer:RefreshData()
     -- Reset scroll to top whenever data is refreshed
     self.scrollOffset = 0
 
+    -- Reconfigure the scrollbar range for the new dataset. If everything
+    -- fits, disable the slider so the thumb doesn't look interactive.
+    if self.scrollBar and self.scrollBar.SetMinMaxValues then
+        local maxOffset = math.max(0, #renderList - self.visibleRows)
+        self.scrollBar:SetMinMaxValues(0, maxOffset)
+        self.scrollBar:SetValue(0)
+        if maxOffset == 0 then
+            if self.scrollBar.Disable then self.scrollBar:Disable() end
+        else
+            if self.scrollBar.Enable then self.scrollBar:Enable() end
+        end
+    end
+
     self:UpdateRows()
 end
 
@@ -452,12 +517,25 @@ function ns.FriendsViewer:Scroll(delta)
     if newOffset ~= self.scrollOffset then
         self.scrollOffset = newOffset
         self:UpdateRows()
+        -- Keep the scrollbar thumb in sync with wheel-driven scrolling.
+        -- UpdateRows -> SetValue will no-op if already equal.
+        if self.scrollBar and self.scrollBar.SetValue then
+            self.scrollBar:SetValue(newOffset)
+        end
     end
 end
 
 function ns.FriendsViewer:UpdateRows()
     local offset = self.scrollOffset or 0
     local renderList = self.renderList or {}
+
+    -- Count data rows as we walk the visible slots so the zebra
+    -- alternation is keyed on the data position, not the physical slot
+    -- index. That keeps stripes consistent even when a header row
+    -- occupies a slot (headers have no stripe and must not flip the
+    -- parity for the rows below them).
+    local dataRowCount = 0
+
     for i = 1, self.visibleRows do
         local rowData = self.rows[i]
         if not rowData then break end
@@ -467,33 +545,47 @@ function ns.FriendsViewer:UpdateRows()
         -- right-click handler can look it up without re-deriving it.
         rowData._currentEntry = entry
 
-        -- Zebra stripe: even visible rows get a subtle tint, UNLESS the
-        -- row is a section header (which needs a clean backdrop for the
-        -- divider look). Keyed on visible row index so the pattern stays
-        -- consistent as you scroll.
-        if rowData.bgTex then
-            if entry and entry._isHeader then
-                rowData.bgTex:SetColorTexture(1, 1, 1, 0)
-            elseif i % 2 == 0 then
-                rowData.bgTex:SetColorTexture(1, 1, 1, 0.04)
-            else
+        if entry and entry._isHeader then
+            -- Header row: no zebra, push the label down so the top of
+            -- the slot reads as whitespace above the section, and tuck
+            -- the hairline under the label so label+line read as a
+            -- single unit.
+            if rowData.bgTex then
                 rowData.bgTex:SetColorTexture(1, 1, 1, 0)
             end
-        end
-
-        if entry and entry._isHeader then
-            -- Render as a divider: compact label on line1, a thin
-            -- texture hairline across the row below it, and no mouse
-            -- interaction. Much cleaner than the old "━━" character fake.
+            rowData.line1:ClearAllPoints()
+            rowData.line1:SetPoint("TOPLEFT", rowData.row, "TOPLEFT", 10, -HEADER_TOP_PAD)
+            rowData.line1:SetPoint("TOPRIGHT", rowData.row, "TOPRIGHT", -32, -HEADER_TOP_PAD)
             rowData.line1:SetText(entry._headerText)
             rowData.line2:SetText("")
             rowData.line3:SetText("")
+            if rowData.hlineTex then
+                rowData.hlineTex:ClearAllPoints()
+                rowData.hlineTex:SetPoint("TOPLEFT", rowData.line1, "BOTTOMLEFT", 0, -4)
+                rowData.hlineTex:SetPoint("TOPRIGHT", rowData.line1, "BOTTOMRIGHT", 22, -4)
+                rowData.hlineTex:Show()
+            end
             if rowData.hoverTex then rowData.hoverTex:Hide() end
             if rowData.removeBtn then rowData.removeBtn:Hide() end
-            if rowData.hlineTex then rowData.hlineTex:Show() end
             rowData.row:EnableMouse(false)
             rowData.row:Show()
         elseif entry then
+            dataRowCount = dataRowCount + 1
+
+            -- Data row: seamless zebra tile. Parity is on the data-row
+            -- count so one header doesn't flip every stripe below it.
+            if rowData.bgTex then
+                if dataRowCount % 2 == 0 then
+                    rowData.bgTex:SetColorTexture(1, 1, 1, 0.05)
+                else
+                    rowData.bgTex:SetColorTexture(0, 0, 0, 0.2)
+                end
+            end
+
+            rowData.line1:ClearAllPoints()
+            rowData.line1:SetPoint("TOPLEFT", rowData.row, "TOPLEFT", 10, -5)
+            rowData.line1:SetPoint("TOPRIGHT", rowData.row, "TOPRIGHT", -32, -5)
+
             rowData.row:EnableMouse(true)
             if rowData.hlineTex then rowData.hlineTex:Hide() end
             local friend = entry.friend
