@@ -3,8 +3,11 @@ local addonName, ns = ...
 ns.MythicPlusTracker = {}
 
 local function DebugPrint(...)
-    -- Always print M+ tracker debug info for now (can gate behind a setting later)
-    print("|cFF00CCFFBetterFriends [Debug]:|r", ...)
+    if ns.DebugLog then
+        ns.DebugLog:Log("M+", ...)
+    else
+        print("|cFF00CCFFBetterFriends [M+]:|r", ...)
+    end
 end
 
 -- Cache party snapshot when M+ starts
@@ -25,11 +28,31 @@ ns:RegisterEvent("CHALLENGE_MODE_COMPLETED", ns.MythicPlusTracker, function(self
     DebugPrint("CHALLENGE_MODE_COMPLETED fired!")
 
     local ok, err = pcall(function()
-        local mapChallengeModeID, level, time, onTime = C_ChallengeMode.GetCompletionInfo()
+        -- WoW 12.0 (Midnight) renamed GetCompletionInfo -> GetChallengeCompletionInfo
+        -- and changed it to return a single struct instead of multiple values
+        local completionInfo
+        if C_ChallengeMode.GetChallengeCompletionInfo then
+            completionInfo = C_ChallengeMode.GetChallengeCompletionInfo()
+        elseif C_ChallengeMode.GetCompletionInfo then
+            -- Fallback for older clients (11.x and below)
+            local mapID, lvl, tm, ot = C_ChallengeMode.GetCompletionInfo()
+            if mapID then
+                completionInfo = {
+                    mapChallengeModeID = mapID,
+                    level = lvl,
+                    time = tm,
+                    onTime = ot,
+                }
+            end
+        end
+
+        local mapChallengeModeID = completionInfo and completionInfo.mapChallengeModeID
+        local level = completionInfo and completionInfo.level
+        local onTime = completionInfo and completionInfo.onTime
         DebugPrint("CompletionInfo:", tostring(mapChallengeModeID), "level:", tostring(level), "onTime:", tostring(onTime))
 
         if not mapChallengeModeID then
-            DebugPrint("GetCompletionInfo returned nil — aborting")
+            DebugPrint("GetChallengeCompletionInfo returned nil — aborting")
             return
         end
 

@@ -8,6 +8,7 @@ BetterFriendsNS = {}
 
 -- Saved variables (persisted globals in WoW)
 BetterFriendsDB = nil
+BetterFriendsDebugLog = nil
 
 -- ============================================================
 -- Frame system mock
@@ -198,6 +199,29 @@ function C_ChallengeMode.IsChallengeModeActive()
     return _G._mockChallengeMode.active
 end
 
+-- WoW 12.0 (Midnight) API: returns a struct
+function C_ChallengeMode.GetChallengeCompletionInfo()
+    local info = _G._mockChallengeMode.completionInfo
+    if info then
+        return {
+            mapChallengeModeID = info.mapChallengeModeID,
+            level = info.level,
+            time = info.time,
+            onTime = info.onTime,
+            keystoneUpgradeLevels = info.keystoneUpgradeLevels,
+            practiceRun = info.practiceRun,
+            oldOverallDungeonScore = info.oldOverallDungeonScore,
+            newOverallDungeonScore = info.newOverallDungeonScore,
+            isMapRecord = info.IsMapRecord,
+            isAffixRecord = info.IsAffixRecord,
+            isEligibleForScore = info.isEligibleForScore,
+            members = info.members,
+        }
+    end
+    return nil
+end
+
+-- Legacy fallback (pre-12.0)
 function C_ChallengeMode.GetCompletionInfo()
     local info = _G._mockChallengeMode.completionInfo
     if info then
@@ -335,6 +359,7 @@ end
 -- ============================================================
 function ResetMocks()
     BetterFriendsDB = nil
+    BetterFriendsDebugLog = nil
     BetterFriendsNS = {}
     _G._mockUnits = {}
     _G._mockPlayerRealm = "TestRealm"

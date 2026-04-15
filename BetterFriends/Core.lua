@@ -33,6 +33,7 @@ ns.eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "ADDON_LOADED" then
         local loadedAddon = ...
         if loadedAddon == addonName then
+            if ns.DebugLog then ns.DebugLog:Init() end
             ns.Data:Init()
             ns:SetupSlashCommands()
         end
@@ -73,6 +74,13 @@ function ns:SetupSlashCommands()
             end
             print("|cFF00CCFFBetterFriends:|r Minimap button " ..
                 (settings.minimapButtonShown and "shown" or "hidden") .. ".")
+        elseif cmd:match("^log") then
+            local countStr = cmd:match("^log%s+(%d+)")
+            local count = countStr and tonumber(countStr) or 20
+            ns.DebugLog:PrintRecent(count)
+        elseif cmd == "clearlog" then
+            ns.DebugLog:Clear()
+            print("|cFF00CCFFBetterFriends:|r Debug log cleared.")
         else
             -- Check for subcommands handled by other modules
             if ns.SlashHandlers and ns.SlashHandlers[cmd] then
@@ -90,6 +98,8 @@ function ns:PrintHelp()
     print("  /bf minimap - Toggle minimap button")
     print("  /bf test - Simulate an M+ completion (debug)")
     print("  /bf link <char> <btag> - Manually link a friend to a BattleTag")
+    print("  /bf log [N] - Show last N debug log entries (default 20)")
+    print("  /bf clearlog - Clear the debug log")
     print("  /bf help - Show this help message")
 end
 
