@@ -80,12 +80,32 @@ function ns.FriendsViewer:Create()
     footer:SetTextColor(0.7, 0.7, 0.7)
     self.footerText = footer
 
-    -- Scrollbar on the right edge, using Blizzard's standard template
-    -- (slider with built-in up/down arrow buttons). Positioned in the
-    -- gutter between the row area and the backdrop border.
-    local scrollBar = CreateFrame("Slider", "BetterFriendsViewerScrollBar", frame, "UIPanelScrollBarTemplate")
-    scrollBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -28, -52)
-    scrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -28, 44)
+    -- Scrollbar on the right edge. We deliberately do NOT inherit from
+    -- UIPanelScrollBarTemplate: that template's OnValueChanged assumes
+    -- its parent is a ScrollFrame and unconditionally calls
+    -- parent:SetVerticalScroll(value), which errors out against a plain
+    -- Frame. Instead we build a bare Slider with a track background and
+    -- a thumb texture, and do our own OnValueChanged handling. Mouse
+    -- wheel still scrolls via the frame-level OnMouseWheel handler, so
+    -- we don't need up/down arrow buttons.
+    local scrollBar = CreateFrame("Slider", "BetterFriendsViewerScrollBar", frame)
+    scrollBar:SetOrientation("VERTICAL")
+    scrollBar:SetWidth(14)
+    scrollBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -22, -52)
+    scrollBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -22, 44)
+
+    -- Track background
+    local track = scrollBar:CreateTexture(nil, "BACKGROUND")
+    track:SetAllPoints(scrollBar)
+    track:SetColorTexture(0.08, 0.08, 0.10, 0.9)
+
+    -- Thumb (Blizzard's classic scroll knob texture)
+    scrollBar:SetThumbTexture("Interface\\Buttons\\UI-ScrollBar-Knob")
+    local thumb = scrollBar:GetThumbTexture()
+    if thumb and thumb.SetSize then
+        thumb:SetSize(14, 28)
+    end
+
     scrollBar:SetMinMaxValues(0, 0)
     scrollBar:SetValueStep(1)
     scrollBar:SetValue(0)
@@ -867,20 +887,56 @@ function ns.FriendsViewer:BuildContextMenu(entry)
     return menu
 end
 
--- Render the context menu at the cursor. Uses Blizzard's EasyMenu.
+-- Render the context menu at the cursor.
+--
+-- IMPORTANT: we deliberately avoid the old EasyMenu / UIDropDownMenu
+-- codepath. In retail WoW those dropdowns taint ToggleGameMenu's call
+-- path, so pressing Escape after opening a context menu causes
+-- ADDON_ACTION_FORBIDDEN on the protected ClearTarget() call that
+-- ToggleGameMenu makes after CloseMenus(). BugSack surfaces it as
+-- "AddOn 'BetterFriends' tried to call the protected function
+-- 'ClearTarget()'" even though we never touch ClearTarget ourselves.
+--
+-- The fix is Blizzard's newer MenuUtil API (introduced in 10.0), which
+-- replaces UIDropDownMenu with a non-tainting implementation. We feed
+-- it the same menu item list BuildContextMenu produces, translating
+-- on-the-fly so the data layer (and its tests) stays untouched.
 function ns.FriendsViewer:ShowContextMenu(entry, anchorFrame)
     if not entry or entry._isHeader then return end
-    local menu = self:BuildContextMenu(entry)
+    local menuItems = self:BuildContextMenu(entry)
 
-    -- Lazily create a dropdown menu frame — EasyMenu needs one to render
-    -- into. Parented to UIParent so it survives the viewer being hidden
-    -- (though in practice we only call this while the viewer is shown).
+    if MenuUtil and MenuUtil.CreateContextMenu then
+        -- Modern path: MenuUtil descriptor callback. Walk the same item
+        -- list we'd give to EasyMenu and replay it into the descriptor.
+        MenuUtil.CreateContextMenu(anchorFrame or UIParent, function(owner, rootDescription)
+            for _, item in ipairs(menuItems) do
+                if item.isTitle then
+                    rootDescription:CreateTitle(item.text or "")
+                elseif (item.text == nil or item.text == "") and item.disabled then
+                    -- EasyMenu-style separator row.
+                    if rootDescription.CreateDivider then
+                        rootDescription:CreateDivider()
+                    end
+                else
+                    local button = rootDescription:CreateButton(item.text or "", function()
+                        if item.func then item.func() end
+                    end)
+                    if item.disabled and button and button.SetEnabled then
+                        button:SetEnabled(false)
+                    end
+                end
+            end
+        end)
+        return
+    end
+
+    -- Legacy fallback for clients without MenuUtil (Classic / very old
+    -- retail). Still tainting, but better than no menu at all.
     if not self._menuFrame then
         self._menuFrame = CreateFrame("Frame", "BetterFriendsContextMenu", UIParent, "UIDropDownMenuTemplate")
     end
-
     if EasyMenu then
-        EasyMenu(menu, self._menuFrame, "cursor", 0, 0, "MENU")
+        EasyMenu(menuItems, self._menuFrame, "cursor", 0, 0, "MENU")
     end
 end
 

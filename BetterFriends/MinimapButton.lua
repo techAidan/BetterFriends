@@ -14,23 +14,34 @@ function ns.MinimapButton:Create()
     btn:SetFrameLevel(8)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
-    -- Icon texture (use a built-in WoW icon — the friends list icon)
+    -- Icon texture — fills the entire circle inside the border ring.
+    -- The circle mask clips the square texture to a disc so the icon
+    -- fills edge-to-edge without corners poking out.
     local icon = btn:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(BUTTON_SIZE - 4, BUTTON_SIZE - 4)
-    icon:SetPoint("CENTER")
+    icon:SetSize(26, 26)
+    icon:SetPoint("TOPLEFT", btn, "TOPLEFT", 3, -3)
     icon:SetTexture("Interface\\Icons\\Achievement_guildperk_everybodysfriend")
+    if icon.SetMask then
+        icon:SetMask("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+    end
     self.icon = icon
 
-    -- Highlight overlay
+    -- Highlight overlay — brightens the icon on hover without swapping
+    -- it for a different image. Same mask so the glow matches the disc.
     local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
-    highlight:SetSize(BUTTON_SIZE, BUTTON_SIZE)
-    highlight:SetPoint("CENTER")
-    highlight:SetTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+    highlight:SetSize(26, 26)
+    highlight:SetPoint("TOPLEFT", btn, "TOPLEFT", 3, -3)
+    highlight:SetColorTexture(1, 1, 1, 0.15)
+    if highlight.SetMask then
+        highlight:SetMask("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+    end
 
-    -- Minimap button border (round border that matches other minimap buttons)
+    -- Minimap button border (round border that matches other minimap
+    -- buttons). Anchored TOPLEFT — the circle in this texture is
+    -- intentionally offset to leave room for the tracking arrow nub.
     local border = btn:CreateTexture(nil, "OVERLAY")
-    border:SetSize(BUTTON_SIZE + 12, BUTTON_SIZE + 12)
-    border:SetPoint("CENTER")
+    border:SetSize(54, 54)
+    border:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
     border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
 
     -- Click handler
