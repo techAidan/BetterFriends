@@ -905,40 +905,35 @@ function ns.FriendsViewer:ShowContextMenu(entry, anchorFrame)
     if not entry or entry._isHeader then return end
     local menuItems = self:BuildContextMenu(entry)
 
-    if MenuUtil and MenuUtil.CreateContextMenu then
-        -- Modern path: MenuUtil descriptor callback. Walk the same item
-        -- list we'd give to EasyMenu and replay it into the descriptor.
-        MenuUtil.CreateContextMenu(anchorFrame or UIParent, function(owner, rootDescription)
-            for _, item in ipairs(menuItems) do
-                if item.isTitle then
-                    rootDescription:CreateTitle(item.text or "")
-                elseif (item.text == nil or item.text == "") and item.disabled then
-                    -- EasyMenu-style separator row.
-                    if rootDescription.CreateDivider then
-                        rootDescription:CreateDivider()
-                    end
-                else
-                    local button = rootDescription:CreateButton(item.text or "", function()
-                        if item.func then item.func() end
-                    end)
-                    if item.disabled and button and button.SetEnabled then
-                        button:SetEnabled(false)
-                    end
-                end
-            end
-        end)
+    if not (MenuUtil and MenuUtil.CreateContextMenu) then
+        -- MenuUtil is required (available since WoW 10.0). The old
+        -- EasyMenu / UIDropDownMenuTemplate approach is intentionally
+        -- NOT used as a fallback because it taints ToggleGameMenu's
+        -- ClearTarget() call, which blocks Escape, logout, and exit.
         return
     end
 
-    -- Legacy fallback for clients without MenuUtil (Classic / very old
-    -- retail). Still tainting, but better than no menu at all.
-    if not self._menuFrame then
-        self._menuFrame = CreateFrame("Frame", "BetterFriendsContextMenu", UIParent, "UIDropDownMenuTemplate")
-    end
-    if EasyMenu then
-        EasyMenu(menuItems, self._menuFrame, "cursor", 0, 0, "MENU")
-    end
+    MenuUtil.CreateContextMenu(anchorFrame or UIParent, function(owner, rootDescription)
+        for _, item in ipairs(menuItems) do
+            if item.isTitle then
+                rootDescription:CreateTitle(item.text or "")
+            elseif (item.text == nil or item.text == "") and item.disabled then
+                -- Separator row.
+                if rootDescription.CreateDivider then
+                    rootDescription:CreateDivider()
+                end
+            else
+                local button = rootDescription:CreateButton(item.text or "", function()
+                    if item.func then item.func() end
+                end)
+                if item.disabled and button and button.SetEnabled then
+                    button:SetEnabled(false)
+                end
+            end
+        end
+    end)
 end
+
 
 -- ============================================================
 -- StaticPopup dialog registrations (executed at load time in WoW;
