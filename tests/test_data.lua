@@ -380,4 +380,195 @@ describe("Data.ClearBNetLink", function()
     end)
 end)
 
+describe("Data.GetAltCluster", function()
+    local function seedCluster()
+        ResetMocks()
+        LoadAddonFile("BetterFriends/Utils.lua")
+        LoadAddonFile("BetterFriends/Data.lua")
+        ns = BetterFriendsNS
+        BetterFriendsDB = nil
+        ns.Data:Init()
+
+        -- Two characters on Keith's account, one unlinked character, one
+        -- character on a different BNet account.
+        ns.Data:AddFriend("urazall-thrall", {
+            characterName = "Urazall", realm = "Thrall",
+            className = "WARRIOR", classDisplayName = "Warrior",
+            role = "TANK", addedDungeon = "AK", addedKeyLevel = 10,
+        })
+        ns.Data:AddFriend("gunnamcc-thrall", {
+            characterName = "Gunnamcc", realm = "Thrall",
+            className = "MAGE", classDisplayName = "Mage",
+            role = "DAMAGER", addedDungeon = "AV", addedKeyLevel = 12,
+        })
+        ns.Data:AddFriend("lonewolf-illidan", {
+            characterName = "LoneWolf", realm = "Illidan",
+            className = "HUNTER", classDisplayName = "Hunter",
+            role = "DAMAGER", addedDungeon = "CoT", addedKeyLevel = 8,
+        })
+        ns.Data:AddFriend("blob-thrall", {
+            characterName = "Blob", realm = "Thrall",
+            className = "PALADIN", classDisplayName = "Paladin",
+            role = "HEALER", addedDungeon = "AK", addedKeyLevel = 9,
+        })
+
+        -- Make Urazall the earlier-met so she's primary of her cluster.
+        BetterFriendsDB.friends["urazall-thrall"].addedTimestamp = 100
+        BetterFriendsDB.friends["gunnamcc-thrall"].addedTimestamp = 200
+        BetterFriendsDB.friends["lonewolf-illidan"].addedTimestamp = 150
+        BetterFriendsDB.friends["blob-thrall"].addedTimestamp = 50
+
+        -- Keith's account = urazall + gunnamcc
+        ns.Data:SetBNetLink("urazall-thrall", 111, "Keith#1234")
+        ns.Data:SetBNetLink("gunnamcc-thrall", 111, "Keith#1234")
+        -- Blob on a different account (unused cross-bnet safety check)
+        ns.Data:SetBNetLink("blob-thrall", 222, "Other#0001")
+        -- LoneWolf unlinked
+    end
+
+    it("returns only self when unlinked", function()
+        seedCluster()
+        local c = ns.Data:GetAltCluster("lonewolf-illidan")
+        expect(#c).toBe(1)
+        expect(c[1]).toBe("lonewolf-illidan")
+    end)
+
+    it("returns every member of the cluster", function()
+        seedCluster()
+        local c = ns.Data:GetAltCluster("urazall-thrall")
+        expect(#c).toBe(2)
+        -- Primary (earliest addedTimestamp) first
+        expect(c[1]).toBe("urazall-thrall")
+        expect(c[2]).toBe("gunnamcc-thrall")
+    end)
+
+    it("returns same cluster regardless of which member is queried", function()
+        seedCluster()
+        local fromUrazall = ns.Data:GetAltCluster("urazall-thrall")
+        local fromGunnamcc = ns.Data:GetAltCluster("gunnamcc-thrall")
+        expect(#fromUrazall).toBe(#fromGunnamcc)
+        expect(fromUrazall[1]).toBe(fromGunnamcc[1])
+        expect(fromUrazall[2]).toBe(fromGunnamcc[2])
+    end)
+
+    it("does not cross bnetAccountID boundaries", function()
+        seedCluster()
+        local c = ns.Data:GetAltCluster("blob-thrall")
+        expect(#c).toBe(1)
+        expect(c[1]).toBe("blob-thrall")
+    end)
+
+    it("returns empty when the friend doesn't exist", function()
+        seedCluster()
+        local c = ns.Data:GetAltCluster("nobody-nowhere")
+        expect(#c).toBe(0)
+    end)
+end)
+
+describe("Data.GetClusterPrimary", function()
+    it("returns the earliest-met member", function()
+        ResetMocks()
+        LoadAddonFile("BetterFriends/Utils.lua")
+        LoadAddonFile("BetterFriends/Data.lua")
+        ns = BetterFriendsNS
+        BetterFriendsDB = nil
+        ns.Data:Init()
+        ns.Data:AddFriend("a-r", { characterName = "A", realm = "R", className = "MAGE", classDisplayName = "Mage", role = "DAMAGER", addedDungeon = "X", addedKeyLevel = 1 })
+        ns.Data:AddFriend("b-r", { characterName = "B", realm = "R", className = "MAGE", classDisplayName = "Mage", role = "DAMAGER", addedDungeon = "X", addedKeyLevel = 1 })
+        BetterFriendsDB.friends["a-r"].addedTimestamp = 100
+        BetterFriendsDB.friends["b-r"].addedTimestamp = 50
+        ns.Data:SetBNetLink("a-r", 7, "Keith#1")
+        ns.Data:SetBNetLink("b-r", 7, "Keith#1")
+
+        expect(ns.Data:GetClusterPrimary("a-r")).toBe("b-r")
+        expect(ns.Data:GetClusterPrimary("b-r")).toBe("b-r")
+    end)
+
+    it("returns self when unlinked", function()
+        ResetMocks()
+        LoadAddonFile("BetterFriends/Utils.lua")
+        LoadAddonFile("BetterFriends/Data.lua")
+        ns = BetterFriendsNS
+        BetterFriendsDB = nil
+        ns.Data:Init()
+        ns.Data:AddFriend("solo-r", { characterName = "Solo", realm = "R", className = "MAGE", classDisplayName = "Mage", role = "DAMAGER", addedDungeon = "X", addedKeyLevel = 1 })
+
+        expect(ns.Data:GetClusterPrimary("solo-r")).toBe("solo-r")
+    end)
+end)
+
+describe("Data.GetClusterKeyTotal", function()
+    it("sums keysCompleted across all cluster members", function()
+        ResetMocks()
+        LoadAddonFile("BetterFriends/Utils.lua")
+        LoadAddonFile("BetterFriends/Data.lua")
+        ns = BetterFriendsNS
+        BetterFriendsDB = nil
+        ns.Data:Init()
+        ns.Data:AddFriend("a-r", { characterName = "A", realm = "R", className = "MAGE", classDisplayName = "Mage", role = "DAMAGER", addedDungeon = "X", addedKeyLevel = 1 })
+        ns.Data:AddFriend("b-r", { characterName = "B", realm = "R", className = "MAGE", classDisplayName = "Mage", role = "DAMAGER", addedDungeon = "X", addedKeyLevel = 1 })
+        ns.Data:SetBNetLink("a-r", 7, "Keith#1")
+        ns.Data:SetBNetLink("b-r", 7, "Keith#1")
+        BetterFriendsDB.friends["a-r"].keysCompleted = 3
+        BetterFriendsDB.friends["b-r"].keysCompleted = 5
+
+        expect(ns.Data:GetClusterKeyTotal("a-r")).toBe(8)
+        expect(ns.Data:GetClusterKeyTotal("b-r")).toBe(8)
+    end)
+
+    it("returns self's count when unlinked", function()
+        ResetMocks()
+        LoadAddonFile("BetterFriends/Utils.lua")
+        LoadAddonFile("BetterFriends/Data.lua")
+        ns = BetterFriendsNS
+        BetterFriendsDB = nil
+        ns.Data:Init()
+        ns.Data:AddFriend("solo-r", { characterName = "Solo", realm = "R", className = "MAGE", classDisplayName = "Mage", role = "DAMAGER", addedDungeon = "X", addedKeyLevel = 1 })
+        BetterFriendsDB.friends["solo-r"].keysCompleted = 4
+
+        expect(ns.Data:GetClusterKeyTotal("solo-r")).toBe(4)
+    end)
+end)
+
+describe("Data.GetPrimaryByBNetAccountID", function()
+    it("returns the earliest-met tracked character for that account", function()
+        ResetMocks()
+        LoadAddonFile("BetterFriends/Utils.lua")
+        LoadAddonFile("BetterFriends/Data.lua")
+        ns = BetterFriendsNS
+        BetterFriendsDB = nil
+        ns.Data:Init()
+        ns.Data:AddFriend("uraz-thrall", { characterName = "Uraz", realm = "Thrall", className = "WAR", classDisplayName = "W", role = "TANK", addedDungeon = "X", addedKeyLevel = 1 })
+        ns.Data:AddFriend("gunn-thrall", { characterName = "Gunn", realm = "Thrall", className = "MAG", classDisplayName = "M", role = "DAMAGER", addedDungeon = "X", addedKeyLevel = 1 })
+        BetterFriendsDB.friends["uraz-thrall"].addedTimestamp = 100
+        BetterFriendsDB.friends["gunn-thrall"].addedTimestamp = 200
+        ns.Data:SetBNetLink("uraz-thrall", 42, "Keith#1")
+        ns.Data:SetBNetLink("gunn-thrall", 42, "Keith#1")
+
+        expect(ns.Data:GetPrimaryByBNetAccountID(42)).toBe("uraz-thrall")
+    end)
+
+    it("returns nil when no tracked character is on that account", function()
+        ResetMocks()
+        LoadAddonFile("BetterFriends/Utils.lua")
+        LoadAddonFile("BetterFriends/Data.lua")
+        ns = BetterFriendsNS
+        BetterFriendsDB = nil
+        ns.Data:Init()
+
+        expect(ns.Data:GetPrimaryByBNetAccountID(999)).toBeNil()
+    end)
+
+    it("returns nil when passed nil", function()
+        ResetMocks()
+        LoadAddonFile("BetterFriends/Utils.lua")
+        LoadAddonFile("BetterFriends/Data.lua")
+        ns = BetterFriendsNS
+        BetterFriendsDB = nil
+        ns.Data:Init()
+
+        expect(ns.Data:GetPrimaryByBNetAccountID(nil)).toBeNil()
+    end)
+end)
+
 exitWithResults()
