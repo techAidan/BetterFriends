@@ -620,6 +620,19 @@ function ns.FriendsViewer:UpdateRows()
             local coloredName = ns.Utils.GetClassColoredName(friend.characterName, friend.className)
             local leading = (roleIcon ~= "") and (roleIcon .. " ") or ""
             local parts = { leading .. coloredName }
+
+            -- Alt annotation: if the cluster is online on a *different*
+            -- character than this row's, show "(on Gunnamcc)" after the
+            -- name so the user still recognizes who it is. Matches the
+            -- "Urazall (on Gunnamcc)" design discussed in review.
+            if entry._isOnline and liveStatus and liveStatus.currentCharacter then
+                local rowName = string.lower(friend.characterName or "")
+                local liveName = string.lower(liveStatus.currentCharacter)
+                if rowName ~= "" and liveName ~= "" and rowName ~= liveName then
+                    table.insert(parts, "|cFFAAAAAA(on " .. liveStatus.currentCharacter .. ")|r")
+                end
+            end
+
             if friend.bnetTag then
                 table.insert(parts, "|cFFAAAAAA" .. friend.bnetTag .. "|r")
             else

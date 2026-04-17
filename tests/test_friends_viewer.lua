@@ -603,6 +603,54 @@ describe("FriendsViewer: Display formatting", function()
         expect(text).toContain("no BNet link")
     end)
 
+    it("should show '(on AltName)' when cluster is online on a different character", function()
+        local ns = loadAll()
+
+        -- Urazall is the tracked character we know them by
+        addFriend(ns, "Urazall", "Thrall", "WARRIOR", "Warrior", "TANK", nil, nil, 555, "Keith#1234")
+
+        -- Keith's account is online, but currently playing Gunnamcc (an
+        -- untracked alt). BNetLinker picks this up via gameAccounts.
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555,
+                battleTag = "Keith#1234",
+                isOnline = true,
+                gameAccounts = {
+                    { characterName = "Gunnamcc", realmName = "Thrall", className = "MAGE", areaName = "Dornogal" },
+                },
+            },
+        }
+
+        ns.FriendsViewer:Show()
+
+        local text = ns.FriendsViewer.rows[2].line1:GetText()
+        expect(text).toContain("Urazall")
+        expect(text).toContain("(on Gunnamcc)")
+    end)
+
+    it("should NOT show '(on X)' when the online character matches the row's character", function()
+        local ns = loadAll()
+
+        addFriend(ns, "Urazall", "Thrall", "WARRIOR", "Warrior", "TANK", nil, nil, 555, "Keith#1234")
+
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555,
+                battleTag = "Keith#1234",
+                isOnline = true,
+                gameAccounts = {
+                    { characterName = "Urazall", realmName = "Thrall", className = "WARRIOR", areaName = "Dornogal" },
+                },
+            },
+        }
+
+        ns.FriendsViewer:Show()
+
+        local text = ns.FriendsViewer.rows[2].line1:GetText()
+        expect(text:find("(on ", 1, true) == nil).toBe(true)
+    end)
+
     it("should render a section header row above friend rows", function()
         local ns = loadAll()
 
