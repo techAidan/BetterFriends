@@ -936,11 +936,13 @@ end
 
 
 -- ============================================================
--- StaticPopup dialog registrations (executed at load time in WoW;
--- guarded for tests where StaticPopupDialogs isn't populated by the
--- mock but assignment is harmless).
+-- StaticPopup dialog registrations. Direct key assignment only —
+-- we deliberately do NOT do `StaticPopupDialogs = StaticPopupDialogs or {}`
+-- because reassigning a Blizzard-owned global binding is a known
+-- taint vector. Tests that don't define the global skip this block
+-- via the `if` guard.
 -- ============================================================
-StaticPopupDialogs = StaticPopupDialogs or {}
+if StaticPopupDialogs then
 
 StaticPopupDialogs["BETTERFRIENDS_REMOVE_FRIEND"] = {
     text = "Remove %s from BetterFriends? This clears all tracked key history for this character.",
@@ -1020,3 +1022,5 @@ StaticPopupDialogs["BETTERFRIENDS_EDIT_NOTE"] = {
     hideOnEscape = true,
     preferredIndex = 3,
 }
+
+end -- if StaticPopupDialogs
