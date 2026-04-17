@@ -8,6 +8,7 @@ BetterFriendsNS = {}
 
 -- Saved variables (persisted globals in WoW)
 BetterFriendsDB = nil
+BetterFriendsDebugLog = nil
 
 -- ============================================================
 -- Frame system mock
@@ -43,6 +44,7 @@ function FrameMethods:SetPoint(...) self._points = {...} end
 function FrameMethods:ClearAllPoints() self._points = {} end
 function FrameMethods:SetMovable(v) self._movable = v end
 function FrameMethods:EnableMouse(v) self._mouseEnabled = v end
+function FrameMethods:EnableMouseWheel(v) self._mouseWheelEnabled = v end
 function FrameMethods:SetClampedToScreen(v) self._clamped = v end
 function FrameMethods:RegisterForDrag(...) end
 function FrameMethods:SetBackdrop(backdrop) self._backdrop = backdrop end
@@ -55,6 +57,27 @@ function FrameMethods:SetFrameLevel(level) self._frameLevel = level end
 function FrameMethods:GetName() return self._name end
 function FrameMethods:SetAlpha(a) self._alpha = a end
 function FrameMethods:GetAlpha() return self._alpha or 1 end
+function FrameMethods:StartMoving() end
+function FrameMethods:StopMovingOrSizing() end
+function FrameMethods:GetCenter() return 500, 500 end
+function FrameMethods:GetEffectiveScale() return 1 end
+function FrameMethods:RegisterForClicks(...) end
+function FrameMethods:SetOwner(owner, anchor)
+    self._tooltipOwner = owner
+    self._tooltipAnchor = anchor
+    self._tooltipLines = {}
+end
+function FrameMethods:AddLine(text, r, g, b, wrap)
+    self._tooltipLines = self._tooltipLines or {}
+    table.insert(self._tooltipLines, { text = text, kind = "single" })
+end
+function FrameMethods:AddDoubleLine(left, right, lr, lg, lb, rr, rg, rb)
+    self._tooltipLines = self._tooltipLines or {}
+    table.insert(self._tooltipLines, { left = left, right = right, kind = "double" })
+end
+function FrameMethods:ClearLines()
+    self._tooltipLines = {}
+end
 
 -- FontString mock methods
 function FrameMethods:SetText(text) self._text = text end
@@ -68,6 +91,25 @@ function FrameMethods:SetWordWrap(v) end
 -- Button mock methods
 function FrameMethods:SetEnabled(v) self._enabled = v end
 function FrameMethods:IsEnabled() return self._enabled ~= false end
+function FrameMethods:Enable() self._enabled = true end
+function FrameMethods:Disable() self._enabled = false end
+
+-- Slider mock methods
+function FrameMethods:SetMinMaxValues(mn, mx) self._sliderMin = mn; self._sliderMax = mx end
+function FrameMethods:GetMinMaxValues() return self._sliderMin or 0, self._sliderMax or 0 end
+function FrameMethods:SetValue(v) self._sliderValue = v end
+function FrameMethods:GetValue() return self._sliderValue or 0 end
+function FrameMethods:SetValueStep(s) self._sliderStep = s end
+function FrameMethods:SetObeyStepOnDrag(v) end
+function FrameMethods:SetOrientation(o) self._sliderOrientation = o end
+function FrameMethods:SetThumbTexture(t) self._thumbTexture = t end
+function FrameMethods:GetThumbTexture()
+    -- Return a Texture-ish frame so tests can call SetSize on it.
+    if not self._thumbTextureObj then
+        self._thumbTextureObj = setmetatable({ _type = "Texture" }, FrameMethods)
+    end
+    return self._thumbTextureObj
+end
 function FrameMethods:SetNormalTexture(t) end
 function FrameMethods:SetHighlightTexture(t) end
 function FrameMethods:SetPushedTexture(t) end
@@ -78,6 +120,9 @@ function FrameMethods:SetTexture(t) self._texture = t end
 function FrameMethods:SetTexCoord(...) end
 function FrameMethods:SetAtlas(atlas) self._atlas = atlas end
 function FrameMethods:SetVertexColor(...) end
+function FrameMethods:SetColorTexture(r, g, b, a) self._colorTexture = {r, g, b, a} end
+function FrameMethods:SetAllPoints(frame) end
+function FrameMethods:SetDrawLayer(layer) end
 
 -- Child creation
 function FrameMethods:CreateFontString(name, layer, template)
@@ -191,6 +236,29 @@ function C_ChallengeMode.IsChallengeModeActive()
     return _G._mockChallengeMode.active
 end
 
+-- WoW 12.0 (Midnight) API: returns a struct
+function C_ChallengeMode.GetChallengeCompletionInfo()
+    local info = _G._mockChallengeMode.completionInfo
+    if info then
+        return {
+            mapChallengeModeID = info.mapChallengeModeID,
+            level = info.level,
+            time = info.time,
+            onTime = info.onTime,
+            keystoneUpgradeLevels = info.keystoneUpgradeLevels,
+            practiceRun = info.practiceRun,
+            oldOverallDungeonScore = info.oldOverallDungeonScore,
+            newOverallDungeonScore = info.newOverallDungeonScore,
+            isMapRecord = info.IsMapRecord,
+            isAffixRecord = info.IsAffixRecord,
+            isEligibleForScore = info.isEligibleForScore,
+            members = info.members,
+        }
+    end
+    return nil
+end
+
+-- Legacy fallback (pre-12.0)
 function C_ChallengeMode.GetCompletionInfo()
     local info = _G._mockChallengeMode.completionInfo
     if info then
@@ -238,18 +306,37 @@ _G._mockBNetFriends = {}
 _G._mockBNetInvitesSent = {}
 
 function BNGetNumFriends()
+    -- Real WoW API: returns (numBNetTotal, numBNetOnline)
     local online = 0
     for _, f in ipairs(_G._mockBNetFriends) do
         if f.isOnline then online = online + 1 end
     end
-    return online, #_G._mockBNetFriends
+    return #_G._mockBNetFriends, online
 end
 
 function BNSendFriendInvite(text, noteText)
     table.insert(_G._mockBNetInvitesSent, { text = text, note = noteText })
 end
 
+-- Verified BattleTag invite flow (unit-based)
+_G._mockBNCheckInviteUnit = nil
+_G._mockBNVerifiedInviteSent = false
+
+function BNCheckBattleTagInviteToUnit(unitID)
+    _G._mockBNCheckInviteUnit = unitID
+    table.insert(_G._mockBNetInvitesSent, { type = "check", unit = unitID })
+end
+
+function BNSendVerifiedBattleTagInvite()
+    _G._mockBNVerifiedInviteSent = true
+    table.insert(_G._mockBNetInvitesSent, { type = "verified" })
+end
+
 function C_BattleNet.GetFriendAccountInfo(index)
+    -- Friends in the mock can declare either:
+    --   * gameAccounts (legacy/test-only table)
+    --   * gameAccountInfo (modern API: currently-active game account)
+    -- Tests may set either (or both) to exercise different code paths.
     return _G._mockBNetFriends[index]
 end
 
@@ -272,6 +359,14 @@ end
 -- ============================================================
 -- Misc WoW globals
 -- ============================================================
+UIParent = CreateFrame("Frame", "UIParent")
+Minimap = CreateFrame("Frame", "Minimap")
+GameTooltip = CreateFrame("Frame", "GameTooltip")
+
+function GetCursorPosition()
+    return 500, 500
+end
+
 function CreateAtlasMarkup(atlas, width, height)
     return "|A:" .. atlas .. ":" .. (width or 0) .. ":" .. (height or 0) .. "|a"
 end
@@ -320,6 +415,7 @@ end
 -- ============================================================
 function ResetMocks()
     BetterFriendsDB = nil
+    BetterFriendsDebugLog = nil
     BetterFriendsNS = {}
     _G._mockUnits = {}
     _G._mockPlayerRealm = "TestRealm"
@@ -327,6 +423,8 @@ function ResetMocks()
     _G._mockFriendList = {}
     _G._mockBNetFriends = {}
     _G._mockBNetInvitesSent = {}
+    _G._mockBNCheckInviteUnit = nil
+    _G._mockBNVerifiedInviteSent = false
     _G._createdFrames = {}
     _G._capturedPrints = {}
     SlashCmdList = {}

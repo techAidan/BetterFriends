@@ -6,6 +6,7 @@ require("wow_api_mock")
 local function loadAll()
     ResetMocks()
     LoadAddonFile("BetterFriends/Utils.lua")
+    LoadAddonFile("BetterFriends/DebugLog.lua")
     LoadAddonFile("BetterFriends/Data.lua")
     LoadAddonFile("BetterFriends/Core.lua")
     LoadAddonFile("BetterFriends/PartyScanner.lua")
@@ -326,7 +327,7 @@ describe("BNetLinker: FindBNetIndexByAccountID", function()
     end)
 end)
 
-describe("BNetLinker: Slash command /bf link", function()
+describe("BNetLinker: Slash command /btf link", function()
     it("should manually link a friend to a BattleTag", function()
         local ns = loadAll()
 
@@ -372,6 +373,147 @@ describe("BNetLinker: Slash command /bf link", function()
         expect(#_G._capturedPrints > 0).toBeTruthy()
         local output = table.concat(_G._capturedPrints, " ")
         expect(output).toContain("not in your friends list")
+    end)
+
+    it("should auto-find BattleTag when only character name given", function()
+        local ns = loadAll()
+
+        ns.Data:AddFriend("urazall-thrall", {
+            characterName = "Urazall",
+            realm = "Thrall",
+            className = "HUNTER",
+            classDisplayName = "Hunter",
+            role = "DAMAGER",
+            addedDungeon = "Ara-Kara",
+            addedKeyLevel = 10,
+        })
+
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555,
+                battleTag = "Ura#1234",
+                isOnline = true,
+                gameAccounts = {
+                    { characterName = "Urazall", realmName = "Thrall", className = "HUNTER", areaName = "Dornogal" },
+                },
+            },
+        }
+
+        _G._capturedPrints = {}
+        ns.SlashHandlers["link"]("link Urazall")
+
+        local friend = ns.Data:GetFriend("urazall-thrall")
+        expect(friend.bnetAccountID).toBe(555)
+        expect(friend.bnetTag).toBe("Ura#1234")
+    end)
+
+    it("should report ambiguity when multiple BNet friends have the same character name", function()
+        local ns = loadAll()
+
+        ns.Data:AddFriend("urazall-thrall", {
+            characterName = "Urazall",
+            realm = "Thrall",
+            className = "HUNTER",
+            classDisplayName = "Hunter",
+            role = "DAMAGER",
+            addedDungeon = "Ara-Kara",
+            addedKeyLevel = 10,
+        })
+
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555,
+                battleTag = "Ura#1234",
+                isOnline = true,
+                gameAccounts = {
+                    { characterName = "Urazall", realmName = "RealmA", className = "HUNTER", areaName = "Dornogal" },
+                },
+            },
+            {
+                bnetAccountID = 666,
+                battleTag = "Other#5678",
+                isOnline = true,
+                gameAccounts = {
+                    { characterName = "Urazall", realmName = "RealmB", className = "HUNTER", areaName = "Stormwind" },
+                },
+            },
+        }
+
+        _G._capturedPrints = {}
+        ns.SlashHandlers["link"]("link Urazall")
+
+        local friend = ns.Data:GetFriend("urazall-thrall")
+        expect(friend.bnetAccountID).toBeNil()  -- Should NOT auto-link
+
+        local output = table.concat(_G._capturedPrints, " ")
+        expect(output).toContain("Multiple")
+    end)
+
+    it("should print message when no BNet friend has that character", function()
+        local ns = loadAll()
+
+        ns.Data:AddFriend("ghost-thrall", {
+            characterName = "Ghost",
+            realm = "Thrall",
+            className = "PRIEST",
+            classDisplayName = "Priest",
+            role = "HEALER",
+            addedDungeon = "Ara-Kara",
+            addedKeyLevel = 10,
+        })
+
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555,
+                battleTag = "Other#1234",
+                isOnline = true,
+                gameAccounts = {
+                    { characterName = "Different", realmName = "Thrall", className = "WARRIOR", areaName = "Dornogal" },
+                },
+            },
+        }
+
+        _G._capturedPrints = {}
+        ns.SlashHandlers["link"]("link Ghost")
+
+        local output = table.concat(_G._capturedPrints, " ")
+        expect(output).toContain("No BNet friend found")
+    end)
+end)
+
+describe("BNetLinker: Slash command /btf bnetscan", function()
+    it("should print online WoW characters and tracked friends", function()
+        local ns = loadAll()
+
+        ns.Data:AddFriend("urazall-thrall", {
+            characterName = "Urazall",
+            realm = "Thrall",
+            className = "HUNTER",
+            classDisplayName = "Hunter",
+            role = "DAMAGER",
+            addedDungeon = "Ara-Kara",
+            addedKeyLevel = 10,
+        })
+
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555,
+                battleTag = "Ura#1234",
+                isOnline = true,
+                gameAccounts = {
+                    { characterName = "Urazall", realmName = "Area 52", className = "HUNTER", areaName = "Dornogal" },
+                },
+            },
+        }
+
+        _G._capturedPrints = {}
+        ns.SlashHandlers["bnetscan"]("bnetscan")
+
+        local output = table.concat(_G._capturedPrints, " ")
+        expect(output).toContain("Urazall")
+        expect(output).toContain("Ura#1234")
+        expect(output).toContain("Area 52")
+        expect(output).toContain("no link")  -- Tracked friend has no stored link
     end)
 end)
 

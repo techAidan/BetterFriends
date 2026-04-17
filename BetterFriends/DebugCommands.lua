@@ -1,6 +1,6 @@
 local addonName, ns = ...
 
--- /bf test — simulates an M+ completion with fake party data
+-- /btf test — simulates an M+ completion with fake party data
 ns.SlashHandlers["test"] = function(msg)
     print("|cFF00CCFFBetterFriends:|r Simulating M+ completion...")
 
@@ -12,6 +12,7 @@ ns.SlashHandlers["test"] = function(msg)
             classToken = "PALADIN",
             classDisplayName = "Paladin",
             role = "HEALER",
+            unitID = "party1",
         },
         {
             name = "Tankmachine",
@@ -20,6 +21,7 @@ ns.SlashHandlers["test"] = function(msg)
             classToken = "WARRIOR",
             classDisplayName = "Warrior",
             role = "TANK",
+            unitID = "party2",
         },
         {
             name = "Pewpewmage",
@@ -28,6 +30,7 @@ ns.SlashHandlers["test"] = function(msg)
             classToken = "MAGE",
             classDisplayName = "Mage",
             role = "DAMAGER",
+            unitID = "party3",
         },
         {
             name = "Sneakyrogue",
@@ -36,6 +39,7 @@ ns.SlashHandlers["test"] = function(msg)
             classToken = "ROGUE",
             classDisplayName = "Rogue",
             role = "DAMAGER",
+            unitID = "party4",
         },
     }
 

@@ -3,10 +3,11 @@
 ## Notes: Track friends made through Mythic+ and send friend requests after key completion.
 ## Author: BlackHole
 ## Version: 1.0.0
-## SavedVariables: BetterFriendsDB
+## SavedVariables: BetterFriendsDB BetterFriendsDebugLog
 ## IconTexture: Interface\Icons\Achievement_guildperk_everybodysfriend
 
 Utils.lua
+DebugLog.lua
 Data.lua
 Core.lua
 PartyScanner.lua

@@ -12,24 +12,36 @@ function ns.MinimapButton:Create()
     btn:SetSize(BUTTON_SIZE, BUTTON_SIZE)
     btn:SetFrameStrata("MEDIUM")
     btn:SetFrameLevel(8)
+    btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
-    -- Icon texture
+    -- Icon texture — fills the entire circle inside the border ring.
+    -- The circle mask clips the square texture to a disc so the icon
+    -- fills edge-to-edge without corners poking out.
     local icon = btn:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(BUTTON_SIZE - 4, BUTTON_SIZE - 4)
-    icon:SetPoint("CENTER")
-    icon:SetTexture("Interface\\AddOns\\BetterFriends\\icon")
+    icon:SetSize(26, 26)
+    icon:SetPoint("TOPLEFT", btn, "TOPLEFT", 3, -3)
+    icon:SetTexture("Interface\\Icons\\Achievement_guildperk_everybodysfriend")
+    if icon.SetMask then
+        icon:SetMask("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+    end
     self.icon = icon
 
-    -- Overlay for highlight
+    -- Highlight overlay — brightens the icon on hover without swapping
+    -- it for a different image. Same mask so the glow matches the disc.
     local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
-    highlight:SetSize(BUTTON_SIZE, BUTTON_SIZE)
-    highlight:SetPoint("CENTER")
-    highlight:SetTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+    highlight:SetSize(26, 26)
+    highlight:SetPoint("TOPLEFT", btn, "TOPLEFT", 3, -3)
+    highlight:SetColorTexture(1, 1, 1, 0.15)
+    if highlight.SetMask then
+        highlight:SetMask("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+    end
 
-    -- Border
+    -- Minimap button border (round border that matches other minimap
+    -- buttons). Anchored TOPLEFT — the circle in this texture is
+    -- intentionally offset to leave room for the tracking arrow nub.
     local border = btn:CreateTexture(nil, "OVERLAY")
-    border:SetSize(BUTTON_SIZE + 2, BUTTON_SIZE + 2)
-    border:SetPoint("CENTER")
+    border:SetSize(54, 54)
+    border:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
     border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
 
     -- Click handler
@@ -41,19 +53,55 @@ function ns.MinimapButton:Create()
         end
     end)
 
-    -- Dragging support
+    -- Tooltip
+    btn:SetScript("OnEnter", function(frame)
+        GameTooltip:SetOwner(frame, "ANCHOR_LEFT")
+        GameTooltip:AddLine("|cFF00CCFFBetterFriends|r")
+        local totalCount = 0
+        if ns.Data and BetterFriendsDB and BetterFriendsDB.friends then
+            for _ in pairs(BetterFriendsDB.friends) do
+                totalCount = totalCount + 1
+            end
+        end
+        GameTooltip:AddLine("Tracking " .. totalCount .. " friends", 1, 1, 1)
+        GameTooltip:AddLine("Left-click to open", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    btn:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+
+    -- Dragging — repositions button around the minimap edge
     btn:SetMovable(true)
     btn:EnableMouse(true)
     btn:RegisterForDrag("LeftButton")
 
     btn:SetScript("OnDragStart", function(frame)
         frame._isDragging = true
+        frame:SetScript("OnUpdate", function(self)
+            if not self._isDragging then return end
+            local mx, my = Minimap:GetCenter()
+            local cx, cy = GetCursorPosition()
+            local scale = Minimap:GetEffectiveScale()
+            cx, cy = cx / scale, cy / scale
+            local angle = math.atan2(cy - my, cx - mx)
+            local x = math.cos(angle) * RADIUS
+            local y = math.sin(angle) * RADIUS
+            self:ClearAllPoints()
+            self:SetPoint("CENTER", Minimap, "CENTER", x, y)
+            -- Store angle in degrees
+            ns.MinimapButton._dragAngle = math.deg(angle)
+        end)
     end)
 
     btn:SetScript("OnDragStop", function(frame)
         frame._isDragging = false
-        -- Calculate angle from cursor position relative to Minimap center
-        -- In the real game, GetCursorPosition() would be used here
+        frame:SetScript("OnUpdate", nil)
+        -- Save the final angle
+        if ns.MinimapButton._dragAngle then
+            local settings = ns.Data:GetSettings()
+            settings.minimapButtonPosition = ns.MinimapButton._dragAngle
+        end
     end)
 
     self.button = btn

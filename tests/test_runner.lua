@@ -1,6 +1,16 @@
 -- Minimal test runner for BetterFriends addon
 -- No external dependencies required, runs on plain Lua 5.1
 
+-- Lua 5.2+ compatibility shim: getfenv/setfenv were removed.
+-- Addon files reference globals via _G and receive (addonName, ns) via ...,
+-- so a no-op shim is sufficient for our mock's LoadAddonFile.
+if not getfenv then
+    function getfenv(_) return _G end
+end
+if not setfenv then
+    function setfenv(_, _) return end
+end
+
 local passed = 0
 local failed = 0
 local errors = {}

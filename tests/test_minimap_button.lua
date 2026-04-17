@@ -11,6 +11,7 @@ local function loadAll()
     -- Recreate Minimap after ResetMocks clears globals
     _G.Minimap = CreateFrame("Frame", "Minimap")
     LoadAddonFile("BetterFriends/Utils.lua")
+    LoadAddonFile("BetterFriends/DebugLog.lua")
     LoadAddonFile("BetterFriends/Data.lua")
     LoadAddonFile("BetterFriends/Core.lua")
     LoadAddonFile("BetterFriends/PartyScanner.lua")

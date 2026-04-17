@@ -21,6 +21,7 @@ function ns.PartyScanner:CaptureCurrentParty()
                 classToken = classToken,
                 classDisplayName = classDisplayName,
                 role = role,
+                unitID = unit,
             })
         end
     end

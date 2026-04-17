@@ -6,6 +6,7 @@ require("wow_api_mock")
 local function loadAll()
     ResetMocks()
     LoadAddonFile("BetterFriends/Utils.lua")
+    LoadAddonFile("BetterFriends/DebugLog.lua")
     LoadAddonFile("BetterFriends/Data.lua")
     LoadAddonFile("BetterFriends/Core.lua")
     return BetterFriendsNS
@@ -100,18 +101,18 @@ describe("Core: ADDON_LOADED", function()
 end)
 
 describe("Core: Slash Commands", function()
-    it("should register /bf and /betterfriends slash commands", function()
+    it("should register /btf and /betterfriends slash commands", function()
         local ns = loadAll()
         -- Trigger ADDON_LOADED to set up slash commands
         local onEvent = ns.eventFrame:GetScript("OnEvent")
         onEvent(ns.eventFrame, "ADDON_LOADED", "BetterFriends")
 
         expect(SlashCmdList["BETTERFRIENDS"]).toNotBeNil()
-        expect(_G["SLASH_BETTERFRIENDS1"]).toBe("/bf")
+        expect(_G["SLASH_BETTERFRIENDS1"]).toBe("/btf")
         expect(_G["SLASH_BETTERFRIENDS2"]).toBe("/betterfriends")
     end)
 
-    it("should print help text for /bf help", function()
+    it("should print help text for /btf help", function()
         local ns = loadAll()
         local onEvent = ns.eventFrame:GetScript("OnEvent")
         onEvent(ns.eventFrame, "ADDON_LOADED", "BetterFriends")
@@ -122,7 +123,7 @@ describe("Core: Slash Commands", function()
         expect(#_G._capturedPrints > 0).toBeTruthy()
         -- Check that help output mentions key commands
         local allOutput = table.concat(_G._capturedPrints, " ")
-        expect(allOutput).toContain("/bf")
+        expect(allOutput).toContain("/btf")
     end)
 
     it("should print help for empty input", function()
@@ -134,6 +135,50 @@ describe("Core: Slash Commands", function()
         SlashCmdList["BETTERFRIENDS"]("")
 
         expect(#_G._capturedPrints > 0).toBeTruthy()
+    end)
+
+    it("should route subcommand-with-args to a SlashHandlers entry by first word", function()
+        local ns = loadAll()
+        local onEvent = ns.eventFrame:GetScript("OnEvent")
+        onEvent(ns.eventFrame, "ADDON_LOADED", "BetterFriends")
+
+        local receivedMsg = nil
+        ns.SlashHandlers["link"] = function(msg)
+            receivedMsg = msg
+        end
+
+        SlashCmdList["BETTERFRIENDS"]("link Urazall")
+        expect(receivedMsg).toBe("link Urazall")  -- handler receives original msg
+
+        receivedMsg = nil
+        SlashCmdList["BETTERFRIENDS"]("link Sword-Thrall Keith#1234")
+        expect(receivedMsg).toBe("link Sword-Thrall Keith#1234")
+    end)
+
+    it("should route a single-word subcommand to SlashHandlers", function()
+        local ns = loadAll()
+        local onEvent = ns.eventFrame:GetScript("OnEvent")
+        onEvent(ns.eventFrame, "ADDON_LOADED", "BetterFriends")
+
+        local called = false
+        ns.SlashHandlers["bnetscan"] = function(msg)
+            called = true
+        end
+
+        SlashCmdList["BETTERFRIENDS"]("bnetscan")
+        expect(called).toBe(true)
+    end)
+
+    it("should print Unknown command for an unrecognized first word", function()
+        local ns = loadAll()
+        local onEvent = ns.eventFrame:GetScript("OnEvent")
+        onEvent(ns.eventFrame, "ADDON_LOADED", "BetterFriends")
+
+        _G._capturedPrints = {}
+        SlashCmdList["BETTERFRIENDS"]("nonsense argument")
+
+        local output = table.concat(_G._capturedPrints, " ")
+        expect(output).toContain("Unknown command")
     end)
 end)
 

@@ -6,6 +6,7 @@ require("wow_api_mock")
 local function loadAll()
     ResetMocks()
     LoadAddonFile("BetterFriends/Utils.lua")
+    LoadAddonFile("BetterFriends/DebugLog.lua")
     LoadAddonFile("BetterFriends/Data.lua")
     LoadAddonFile("BetterFriends/Core.lua")
     LoadAddonFile("BetterFriends/PartyScanner.lua")
@@ -18,7 +19,7 @@ local function loadAll()
     return ns
 end
 
-local function makeMember(name, realm, classToken, classDisplayName, role)
+local function makeMember(name, realm, classToken, classDisplayName, role, unitID)
     return {
         name = name,
         realm = realm,
@@ -26,6 +27,7 @@ local function makeMember(name, realm, classToken, classDisplayName, role)
         classToken = classToken,
         classDisplayName = classDisplayName,
         role = role,
+        unitID = unitID or "party1",
     }
 end
 
@@ -199,10 +201,10 @@ describe("FriendRequestPopup: Show", function()
 end)
 
 describe("FriendRequestPopup: OnAddFriend", function()
-    it("should send BNSendFriendInvite with correct name-realm format", function()
+    it("should call BNCheckBattleTagInviteToUnit with correct unit ID", function()
         local ns = loadAll()
         local members = {
-            makeMember("Sword", "Thrall", "WARRIOR", "Warrior", "TANK"),
+            makeMember("Sword", "Thrall", "WARRIOR", "Warrior", "TANK", "party2"),
         }
         local data = makeCompletionData(members, "Ara-Kara", 12, true)
 
@@ -212,7 +214,8 @@ describe("FriendRequestPopup: OnAddFriend", function()
         ns.FriendRequestPopup:OnAddFriend(members[1])
 
         expect(#_G._mockBNetInvitesSent).toBe(1)
-        expect(_G._mockBNetInvitesSent[1].text).toBe("Sword-Thrall")
+        expect(_G._mockBNetInvitesSent[1].type).toBe("check")
+        expect(_G._mockBNetInvitesSent[1].unit).toBe("party2")
     end)
 
     it("should store friend in Data with correct dungeon context", function()
@@ -253,7 +256,7 @@ describe("FriendRequestPopup: OnAddFriend", function()
     it("should call BNetLinker snapshot and pending invite", function()
         local ns = loadAll()
         local members = {
-            makeMember("Sword", "Thrall", "WARRIOR", "Warrior", "TANK"),
+            makeMember("Sword", "Thrall", "WARRIOR", "Warrior", "TANK", "party1"),
         }
         local data = makeCompletionData(members, "Ara-Kara", 12, true)
 
@@ -291,9 +294,9 @@ describe("FriendRequestPopup: OnAddAll", function()
         })
 
         local members = {
-            makeMember("Sword", "Thrall", "WARRIOR", "Warrior", "TANK"),
-            makeMember("Arrow", "Thrall", "HUNTER", "Hunter", "DAMAGER"),
-            makeMember("Healer", "Thrall", "PRIEST", "Priest", "HEALER"),
+            makeMember("Sword", "Thrall", "WARRIOR", "Warrior", "TANK", "party1"),
+            makeMember("Arrow", "Thrall", "HUNTER", "Hunter", "DAMAGER", "party2"),
+            makeMember("Healer", "Thrall", "PRIEST", "Priest", "HEALER", "party3"),
         }
         local data = makeCompletionData(members, "Ara-Kara", 12, true)
 
@@ -309,8 +312,8 @@ describe("FriendRequestPopup: OnAddAll", function()
     it("should not double-send for already sent members", function()
         local ns = loadAll()
         local members = {
-            makeMember("Sword", "Thrall", "WARRIOR", "Warrior", "TANK"),
-            makeMember("Arrow", "Thrall", "HUNTER", "Hunter", "DAMAGER"),
+            makeMember("Sword", "Thrall", "WARRIOR", "Warrior", "TANK", "party1"),
+            makeMember("Arrow", "Thrall", "HUNTER", "Hunter", "DAMAGER", "party2"),
         }
         local data = makeCompletionData(members, "Ara-Kara", 12, true)
 
