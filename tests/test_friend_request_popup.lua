@@ -330,6 +330,110 @@ describe("FriendRequestPopup: OnAddAll", function()
     end)
 end)
 
+describe("FriendRequestPopup: alt-cluster annotation", function()
+    it("labels an untracked member as 'alt of <primary>' when their BNet already has a tracked character", function()
+        local ns = loadAll()
+
+        -- Urazall is tracked and linked to Keith#1234 (account 555).
+        ns.Data:AddFriend("urazall-thrall", {
+            characterName = "Urazall", realm = "Thrall",
+            className = "WARRIOR", classDisplayName = "Warrior",
+            role = "TANK", addedDungeon = "AK", addedKeyLevel = 10,
+        })
+        ns.Data:SetBNetLink("urazall-thrall", 555, "Keith#1234")
+
+        -- Keith's BNet friend entry exposes both characters.
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555, battleTag = "Keith#1234", isOnline = true,
+                gameAccounts = {
+                    { characterName = "Urazall", realmName = "Thrall", className = "WARRIOR" },
+                    { characterName = "Gunnamcc", realmName = "Thrall", className = "MAGE" },
+                },
+            },
+        }
+
+        -- We just did a key with Gunnamcc (the untracked alt).
+        local data = makeCompletionData({
+            makeMember("Gunnamcc", "Thrall", "MAGE", "Mage", "DAMAGER"),
+        }, "Ara-Kara", 15, true)
+
+        ns.FriendRequestPopup:Show(data)
+
+        local nameText = ns.FriendRequestPopup.memberRows[1].nameText:GetText()
+        expect(nameText).toContain("Gunnamcc")
+        expect(nameText).toContain("alt of Urazall")
+        expect(nameText).toContain("1 key") -- Urazall alone has keysCompleted=1
+    end)
+
+    it("uses plural keys label and sums across the cluster", function()
+        local ns = loadAll()
+
+        ns.Data:AddFriend("urazall-thrall", {
+            characterName = "Urazall", realm = "Thrall",
+            className = "WARRIOR", classDisplayName = "Warrior",
+            role = "TANK", addedDungeon = "AK", addedKeyLevel = 10,
+        })
+        ns.Data:AddFriend("uraheal-thrall", {
+            characterName = "Uraheal", realm = "Thrall",
+            className = "PRIEST", classDisplayName = "Priest",
+            role = "HEALER", addedDungeon = "AV", addedKeyLevel = 8,
+        })
+        ns.Data:SetBNetLink("urazall-thrall", 555, "Keith#1234")
+        ns.Data:SetBNetLink("uraheal-thrall", 555, "Keith#1234")
+        -- Bump counts so total = 4.
+        BetterFriendsDB.friends["urazall-thrall"].keysCompleted = 3
+        BetterFriendsDB.friends["uraheal-thrall"].keysCompleted = 1
+
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555, battleTag = "Keith#1234", isOnline = true,
+                gameAccounts = {
+                    { characterName = "Gunnamcc", realmName = "Thrall", className = "MAGE" },
+                },
+            },
+        }
+
+        local data = makeCompletionData({
+            makeMember("Gunnamcc", "Thrall", "MAGE", "Mage", "DAMAGER"),
+        })
+        ns.FriendRequestPopup:Show(data)
+
+        local nameText = ns.FriendRequestPopup.memberRows[1].nameText:GetText()
+        expect(nameText).toContain("4 keys")
+    end)
+
+    it("does not add an alt-annotation when the member is already tracked", function()
+        local ns = loadAll()
+        ns.Data:AddFriend("sword-thrall", {
+            characterName = "Sword", realm = "Thrall",
+            className = "WARRIOR", classDisplayName = "Warrior",
+            role = "TANK", addedDungeon = "AK", addedKeyLevel = 10,
+        })
+
+        local data = makeCompletionData({
+            makeMember("Sword", "Thrall", "WARRIOR", "Warrior", "TANK"),
+        })
+        ns.FriendRequestPopup:Show(data)
+
+        local nameText = ns.FriendRequestPopup.memberRows[1].nameText:GetText()
+        expect(nameText:find("alt of", 1, true) == nil).toBe(true)
+    end)
+
+    it("does not add an alt-annotation when the member's BNet is not yet known", function()
+        local ns = loadAll()
+        _G._mockBNetFriends = {}
+
+        local data = makeCompletionData({
+            makeMember("Stranger", "Illidan", "ROGUE", "Rogue", "DAMAGER"),
+        })
+        ns.FriendRequestPopup:Show(data)
+
+        local nameText = ns.FriendRequestPopup.memberRows[1].nameText:GetText()
+        expect(nameText:find("alt of", 1, true) == nil).toBe(true)
+    end)
+end)
+
 describe("FriendRequestPopup: Hide", function()
     it("should hide the frame", function()
         local ns = loadAll()

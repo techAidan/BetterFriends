@@ -108,8 +108,12 @@ function ns.FriendRequestPopup:Create()
 
         local nameText = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         nameText:SetPoint("LEFT", roleText, "RIGHT", 2, 0)
-        nameText:SetWidth(170)
+        -- Width expanded from 170 so the optional alt-cluster annotation
+        -- ("alt of Urazall (3 keys)") can render inline after the name
+        -- without clipping against the Add Friend button.
+        nameText:SetWidth(200)
         nameText:SetJustifyH("LEFT")
+        nameText:SetWordWrap(false)
 
         -- Add Friend button on the right (uses Blizzard button template)
         local addButton = CreateFrame("Button", "BFPopupAddBtn" .. i, row, "UIPanelButtonTemplate")
@@ -175,6 +179,14 @@ function ns.FriendRequestPopup:Show(completionData)
         .. timedColor .. timedStr .. "|r"
     self.dungeonInfoText:SetText(infoStr)
 
+    -- Build the BNet character lookup once per Show so we can annotate
+    -- untracked members whose BNet is already in a cluster with someone
+    -- we know. Empty table if BNetLinker isn't loaded (e.g. tests).
+    local bnetMap = {}
+    if ns.BNetLinker and ns.BNetLinker.BuildCharacterLookup then
+        bnetMap = ns.BNetLinker:BuildCharacterLookup()
+    end
+
     -- Populate member rows
     for i = 1, 4 do
         local rowData = self.memberRows[i]
@@ -186,9 +198,30 @@ function ns.FriendRequestPopup:Show(completionData)
             local roleName = ns.Utils.GetRoleDisplayName(member.role)
             rowData.roleText:SetText(roleIcon .. " " .. roleName)
 
-            -- Class-colored name
+            -- Class-colored name, plus an optional "alt of <primary>" tag
+            -- when this member isn't tracked but their BNet account
+            -- already has a tracked character in it. N is the cluster-
+            -- wide keysCompleted total so the user knows how familiar
+            -- this person is, regardless of which alt we met them on.
             local coloredName = ns.Utils.GetClassColoredName(member.name, member.classToken)
-            rowData.nameText:SetText(coloredName)
+            local isFriend = ns.Data:IsFriend(member.nameRealm)
+
+            local altAnnotation = ""
+            if not isFriend then
+                local match = bnetMap[member.nameRealm]
+                if match and match.accountID then
+                    local primaryNR = ns.Data:GetPrimaryByBNetAccountID(match.accountID)
+                    if primaryNR then
+                        local primary = ns.Data:GetFriend(primaryNR)
+                        local total = ns.Data:GetClusterKeyTotal(primaryNR)
+                        local keysLabel = (total == 1) and "1 key" or (total .. " keys")
+                        altAnnotation = "  |cFFAAAAAAalt of "
+                            .. (primary.characterName or "?")
+                            .. " (" .. keysLabel .. ")|r"
+                    end
+                end
+            end
+            rowData.nameText:SetText(coloredName .. altAnnotation)
 
             -- Store member info for button click
             rowData.memberInfo = member
@@ -199,7 +232,7 @@ function ns.FriendRequestPopup:Show(completionData)
             end)
 
             -- Check if already a friend
-            if ns.Data:IsFriend(member.nameRealm) then
+            if isFriend then
                 rowData.addButton:Hide()
                 local friend = ns.Data:GetFriend(member.nameRealm)
                 rowData.statusText:SetText("Friend (+" .. friend.highestKeyLevel .. " " .. friend.highestKeyDungeon .. ")")
