@@ -470,6 +470,42 @@ function ns.FriendsViewer:RefreshData()
         })
     end
 
+    -- Cluster dedup: when two tracked characters share a BNet account,
+    -- both independently detect the cluster as online, so the list would
+    -- show duplicate "online" rows for the same person. Pick one
+    -- canonical online row per cluster:
+    --   1) the tracked character that matches currentCharacter (the one
+    --      they're actually playing right now), if any;
+    --   2) otherwise the earliest-met character (primary).
+    -- The losers get marked offline — they keep their row and their own
+    -- last-seen timestamp, they just don't double-count as online.
+    do
+        local byAccount = {}
+        for _, entry in ipairs(entries) do
+            local acct = entry._isOnline and entry.friend.bnetAccountID or nil
+            if acct then
+                byAccount[acct] = byAccount[acct] or {}
+                table.insert(byAccount[acct], entry)
+            end
+        end
+        for _, group in pairs(byAccount) do
+            if #group > 1 then
+                local currentChar = string.lower(group[1].liveStatus and group[1].liveStatus.currentCharacter or "")
+                table.sort(group, function(a, b)
+                    local aMatch = currentChar ~= "" and string.lower(a.friend.characterName or "") == currentChar
+                    local bMatch = currentChar ~= "" and string.lower(b.friend.characterName or "") == currentChar
+                    if aMatch ~= bMatch then return aMatch end
+                    return (a.friend.addedTimestamp or 0) < (b.friend.addedTimestamp or 0)
+                end)
+                for i = 2, #group do
+                    group[i]._isOnline = false
+                    group[i].liveStatus = nil
+                    onlineCount = onlineCount - 1
+                end
+            end
+        end
+    end
+
     -- Sort: online first, then alphabetically by characterName
     table.sort(entries, function(a, b)
         if a._isOnline ~= b._isOnline then
