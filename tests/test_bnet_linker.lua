@@ -291,6 +291,36 @@ describe("BNetLinker: GetLiveStatus", function()
         local status = ns.BNetLinker:GetLiveStatus("nobody-nowhere")
         expect(status).toBeNil()
     end)
+
+    it("should pick up the current character from modern gameAccountInfo even when gameAccounts is empty", function()
+        local ns = loadAll()
+        ns.Data:AddFriend("urazall-thrall", {
+            characterName = "Urazall", realm = "Thrall",
+            className = "WARRIOR", classDisplayName = "Warrior",
+            role = "TANK", addedDungeon = "AK", addedKeyLevel = 10,
+        })
+        ns.Data:SetBNetLink("urazall-thrall", 555, "Keith#1234")
+
+        -- Retail-style payload: modern field populated, legacy empty.
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555, battleTag = "Keith#1234", isOnline = true,
+                gameAccountInfo = {
+                    clientProgram = "WoW",
+                    isOnline = true,
+                    characterName = "Gunnamcc", realmName = "Thrall",
+                    className = "Mage", areaName = "Dornogal",
+                },
+                gameAccounts = {},
+            },
+        }
+
+        local status = ns.BNetLinker:GetLiveStatus("urazall-thrall")
+        expect(status).toNotBeNil()
+        expect(status.isOnline).toBe(true)
+        expect(status.currentCharacter).toBe("Gunnamcc")
+        expect(status.currentRealm).toBe("Thrall")
+    end)
 end)
 
 describe("BNetLinker: FindBNetIndexByAccountID", function()

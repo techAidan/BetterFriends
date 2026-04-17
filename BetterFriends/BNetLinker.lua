@@ -218,19 +218,42 @@ function ns.BNetLinker:GetLiveStatus(nameRealm)
     if not info then return nil end
 
     local status = {
-        isOnline = info.isOnline,
+        isOnline = isAccountOnline(info),
         currentCharacter = nil,
         currentRealm = nil,
         currentClass = nil,
         zone = nil,
     }
 
-    if info.gameAccounts and #info.gameAccounts > 0 then
-        local ga = info.gameAccounts[1]
+    -- Pick the first WoW character we can find across the three API
+    -- shapes, preferring modern fields. Without this, a BNet friend
+    -- online on retail-only data (empty `gameAccounts`) reports
+    -- currentCharacter = nil and the "(on X)" viewer annotation never
+    -- shows.
+    local function adopt(ga)
+        if not (ga and isWoWGameAccount(ga) and ga.characterName and ga.characterName ~= "") then
+            return false
+        end
         status.currentCharacter = ga.characterName
         status.currentRealm = ga.realmName
         status.currentClass = ga.className
         status.zone = ga.areaName
+        return true
+    end
+
+    if info.gameAccountInfo and adopt(info.gameAccountInfo) then
+        -- done
+    elseif C_BattleNet.GetFriendNumGameAccounts then
+        local numGA = C_BattleNet.GetFriendNumGameAccounts(index) or 0
+        for j = 1, numGA do
+            if adopt(C_BattleNet.GetFriendGameAccountInfo(index, j)) then break end
+        end
+    end
+
+    if not status.currentCharacter and info.gameAccounts then
+        for _, ga in ipairs(info.gameAccounts) do
+            if adopt(ga) then break end
+        end
     end
 
     return status
