@@ -517,4 +517,124 @@ describe("BNetLinker: Slash command /btf bnetscan", function()
     end)
 end)
 
+describe("BNetLinker: AutoLinkByScan", function()
+    it("links an unlinked tracked character whose nameRealm matches a BNet friend's game account", function()
+        local ns = loadAll()
+        ns.Data:AddFriend("urazall-thrall", {
+            characterName = "Urazall", realm = "Thrall",
+            className = "WARRIOR", classDisplayName = "Warrior",
+            role = "TANK", addedDungeon = "AK", addedKeyLevel = 10,
+        })
+
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555, battleTag = "Keith#1234", isOnline = false,
+                gameAccounts = {
+                    { characterName = "Urazall", realmName = "Thrall", className = "WARRIOR" },
+                },
+            },
+        }
+
+        local linked = ns.BNetLinker:AutoLinkByScan()
+
+        expect(linked).toBe(1)
+        local f = ns.Data:GetFriend("urazall-thrall")
+        expect(f.bnetAccountID).toBe(555)
+        expect(f.bnetTag).toBe("Keith#1234")
+    end)
+
+    it("skips already-linked friends", function()
+        local ns = loadAll()
+        ns.Data:AddFriend("urazall-thrall", {
+            characterName = "Urazall", realm = "Thrall",
+            className = "WARRIOR", classDisplayName = "Warrior",
+            role = "TANK", addedDungeon = "AK", addedKeyLevel = 10,
+        })
+        ns.Data:SetBNetLink("urazall-thrall", 111, "Old#9999")
+
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555, battleTag = "Keith#1234", isOnline = false,
+                gameAccounts = {
+                    { characterName = "Urazall", realmName = "Thrall" },
+                },
+            },
+        }
+
+        local linked = ns.BNetLinker:AutoLinkByScan()
+
+        expect(linked).toBe(0)
+        local f = ns.Data:GetFriend("urazall-thrall")
+        expect(f.bnetAccountID).toBe(111) -- unchanged
+        expect(f.bnetTag).toBe("Old#9999")
+    end)
+
+    it("links both characters of a cluster when both are tracked", function()
+        local ns = loadAll()
+        ns.Data:AddFriend("urazall-thrall", {
+            characterName = "Urazall", realm = "Thrall",
+            className = "WARRIOR", classDisplayName = "Warrior",
+            role = "TANK", addedDungeon = "AK", addedKeyLevel = 10,
+        })
+        ns.Data:AddFriend("gunnamcc-thrall", {
+            characterName = "Gunnamcc", realm = "Thrall",
+            className = "MAGE", classDisplayName = "Mage",
+            role = "DAMAGER", addedDungeon = "AV", addedKeyLevel = 12,
+        })
+
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555, battleTag = "Keith#1234", isOnline = false,
+                gameAccounts = {
+                    { characterName = "Urazall", realmName = "Thrall" },
+                    { characterName = "Gunnamcc", realmName = "Thrall" },
+                },
+            },
+        }
+
+        local linked = ns.BNetLinker:AutoLinkByScan()
+
+        expect(linked).toBe(2)
+        expect(ns.Data:GetFriend("urazall-thrall").bnetAccountID).toBe(555)
+        expect(ns.Data:GetFriend("gunnamcc-thrall").bnetAccountID).toBe(555)
+    end)
+
+    it("does not link characters that aren't on the BNet friend list", function()
+        local ns = loadAll()
+        ns.Data:AddFriend("nobody-nowhere", {
+            characterName = "Nobody", realm = "Nowhere",
+            className = "MAGE", classDisplayName = "Mage",
+            role = "DAMAGER", addedDungeon = "AK", addedKeyLevel = 10,
+        })
+
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555, battleTag = "Keith#1234", isOnline = false,
+                gameAccounts = {
+                    { characterName = "Urazall", realmName = "Thrall" },
+                },
+            },
+        }
+
+        local linked = ns.BNetLinker:AutoLinkByScan()
+
+        expect(linked).toBe(0)
+        expect(ns.Data:GetFriend("nobody-nowhere").bnetAccountID).toBeNil()
+    end)
+
+    it("is safe to call when there are no BNet friends", function()
+        local ns = loadAll()
+        ns.Data:AddFriend("urazall-thrall", {
+            characterName = "Urazall", realm = "Thrall",
+            className = "WARRIOR", classDisplayName = "Warrior",
+            role = "TANK", addedDungeon = "AK", addedKeyLevel = 10,
+        })
+
+        _G._mockBNetFriends = {}
+
+        local linked = ns.BNetLinker:AutoLinkByScan()
+        expect(linked).toBe(0)
+    end)
+end)
+
 exitWithResults()
