@@ -145,3 +145,73 @@ function ns.Data:SetNote(nameRealm, note)
     friend.notes = note or ""
     return true
 end
+
+-- Return the set of tracked nameRealms that share the same bnetAccountID
+-- as `nameRealm`, including nameRealm itself. If the friend has no BNet
+-- link, returns just { nameRealm }. The result is a plain array so
+-- callers can ipairs over it; order is stable and primary-first (the
+-- earliest `addedTimestamp` in the cluster).
+function ns.Data:GetAltCluster(nameRealm)
+    local friend = BetterFriendsDB and BetterFriendsDB.friends and BetterFriendsDB.friends[nameRealm]
+    if not friend then return {} end
+
+    if not friend.bnetAccountID then
+        return { nameRealm }
+    end
+
+    local members = {}
+    for nr, f in pairs(BetterFriendsDB.friends) do
+        if f.bnetAccountID == friend.bnetAccountID then
+            table.insert(members, nr)
+        end
+    end
+
+    -- Sort by earliest addedTimestamp first (stable primary = first-met).
+    table.sort(members, function(a, b)
+        local fa = BetterFriendsDB.friends[a]
+        local fb = BetterFriendsDB.friends[b]
+        return (fa.addedTimestamp or 0) < (fb.addedTimestamp or 0)
+    end)
+    return members
+end
+
+-- The "primary" is the character you met first in the cluster — the one
+-- you recognize them by. Returns the input nameRealm if unlinked.
+function ns.Data:GetClusterPrimary(nameRealm)
+    local cluster = self:GetAltCluster(nameRealm)
+    return cluster[1] or nameRealm
+end
+
+-- Sum of keysCompleted across every tracked character in the cluster.
+function ns.Data:GetClusterKeyTotal(nameRealm)
+    local cluster = self:GetAltCluster(nameRealm)
+    local total = 0
+    for _, nr in ipairs(cluster) do
+        local f = BetterFriendsDB.friends[nr]
+        if f and f.keysCompleted then
+            total = total + f.keysCompleted
+        end
+    end
+    return total
+end
+
+-- Given a bnetAccountID (e.g. from a BNet friend list entry), return the
+-- tracked nameRealm of the earliest-met character on that account, or nil
+-- if none of this BNet's characters are tracked yet. Used by the popup
+-- to label a newly-met alt as "alt of <primary>".
+function ns.Data:GetPrimaryByBNetAccountID(bnetAccountID)
+    if not bnetAccountID then return nil end
+    if not (BetterFriendsDB and BetterFriendsDB.friends) then return nil end
+
+    local bestNameRealm, bestTs = nil, nil
+    for nr, f in pairs(BetterFriendsDB.friends) do
+        if f.bnetAccountID == bnetAccountID then
+            local ts = f.addedTimestamp or 0
+            if not bestTs or ts < bestTs then
+                bestTs = ts
+                bestNameRealm = nr
+            end
+        end
+    end
+    return bestNameRealm
+end

@@ -140,6 +140,71 @@ function ns.BNetLinker:ProcessNewFriends()
     self.bnetSnapshot = currentFriends
 end
 
+-- Walk the whole BNet friend list and build a nameRealm -> { accountID,
+-- battleTag } lookup. Unlike ForEachWoWGameAccount, this includes
+-- *offline* accounts too — the goal here is to harvest character/realm
+-- info that Blizzard still reports even when the friend isn't logged in,
+-- so auto-linking works at /reload time before they come online.
+function ns.BNetLinker:BuildCharacterLookup()
+    local map = {}
+    if not BNGetNumFriends then return map end
+    local numTotal = BNGetNumFriends()
+
+    local function ingestGameAccount(info, ga)
+        if not (ga and isWoWGameAccount(ga) and ga.characterName and ga.characterName ~= "") then
+            return
+        end
+        local realm = ga.realmName
+        if not realm or realm == "" then return end
+        local nr = ns.Utils.NormalizeNameRealm(ga.characterName, realm)
+        map[nr] = { accountID = info.bnetAccountID, battleTag = info.battleTag }
+    end
+
+    for i = 1, numTotal do
+        local info = C_BattleNet.GetFriendAccountInfo(i)
+        if info and info.bnetAccountID then
+            if info.gameAccountInfo then
+                ingestGameAccount(info, info.gameAccountInfo)
+            end
+            if C_BattleNet.GetFriendNumGameAccounts then
+                local numGA = C_BattleNet.GetFriendNumGameAccounts(i) or 0
+                for j = 1, numGA do
+                    ingestGameAccount(info, C_BattleNet.GetFriendGameAccountInfo(i, j))
+                end
+            end
+            if info.gameAccounts then
+                for _, ga in ipairs(info.gameAccounts) do
+                    ingestGameAccount(info, ga)
+                end
+            end
+        end
+    end
+    return map
+end
+
+-- Link any tracked friend that has no bnetAccountID but whose
+-- nameRealm matches a character on someone's BNet account. Returns the
+-- number of new links created. Safe to call repeatedly — already-linked
+-- friends are skipped.
+function ns.BNetLinker:AutoLinkByScan()
+    local map = self:BuildCharacterLookup()
+    local linked = 0
+    for nr, friend in pairs(ns.Data:GetAllFriends()) do
+        if not friend.bnetAccountID then
+            local match = map[nr]
+            if match and match.accountID then
+                ns.Data:SetBNetLink(nr, match.accountID, match.battleTag)
+                linked = linked + 1
+                if ns.DebugLog then
+                    ns.DebugLog:Log("BNetLinker", "Auto-linked "
+                        .. nr .. " -> " .. tostring(match.battleTag))
+                end
+            end
+        end
+    end
+    return linked
+end
+
 function ns.BNetLinker:GetLiveStatus(nameRealm)
     local friend = ns.Data:GetFriend(nameRealm)
     if not friend or not friend.bnetAccountID then
@@ -153,19 +218,42 @@ function ns.BNetLinker:GetLiveStatus(nameRealm)
     if not info then return nil end
 
     local status = {
-        isOnline = info.isOnline,
+        isOnline = isAccountOnline(info),
         currentCharacter = nil,
         currentRealm = nil,
         currentClass = nil,
         zone = nil,
     }
 
-    if info.gameAccounts and #info.gameAccounts > 0 then
-        local ga = info.gameAccounts[1]
+    -- Pick the first WoW character we can find across the three API
+    -- shapes, preferring modern fields. Without this, a BNet friend
+    -- online on retail-only data (empty `gameAccounts`) reports
+    -- currentCharacter = nil and the "(on X)" viewer annotation never
+    -- shows.
+    local function adopt(ga)
+        if not (ga and isWoWGameAccount(ga) and ga.characterName and ga.characterName ~= "") then
+            return false
+        end
         status.currentCharacter = ga.characterName
         status.currentRealm = ga.realmName
         status.currentClass = ga.className
         status.zone = ga.areaName
+        return true
+    end
+
+    if info.gameAccountInfo and adopt(info.gameAccountInfo) then
+        -- done
+    elseif C_BattleNet.GetFriendNumGameAccounts then
+        local numGA = C_BattleNet.GetFriendNumGameAccounts(index) or 0
+        for j = 1, numGA do
+            if adopt(C_BattleNet.GetFriendGameAccountInfo(index, j)) then break end
+        end
+    end
+
+    if not status.currentCharacter and info.gameAccounts then
+        for _, ga in ipairs(info.gameAccounts) do
+            if adopt(ga) then break end
+        end
     end
 
     return status
@@ -174,6 +262,22 @@ end
 -- Register for BNet friend list changes
 ns:RegisterEvent("BN_FRIEND_LIST_SIZE_CHANGED", ns.BNetLinker, function(self, event)
     ns.BNetLinker:ProcessNewFriends()
+    ns.BNetLinker:AutoLinkByScan()
+end)
+
+-- When a BNet friend's account info changes (logs in/out, switches
+-- character, etc.), their gameAccountInfo gets populated and may reveal
+-- a character match that was invisible before. Rescan so previously-met
+-- characters link up automatically.
+ns:RegisterEvent("BN_FRIEND_INFO_CHANGED", ns.BNetLinker, function(self, event)
+    ns.BNetLinker:AutoLinkByScan()
+end)
+
+-- At login, do one scan once the friend list has had time to populate.
+-- We don't know exactly when that is, so run it on PLAYER_LOGIN *and*
+-- lean on the two BNet events above to catch late-arriving data.
+ns:RegisterEvent("PLAYER_LOGIN", ns.BNetLinker, function(self, event)
+    ns.BNetLinker:AutoLinkByScan()
 end)
 
 -- Slash command for manual linking

@@ -603,6 +603,122 @@ describe("FriendsViewer: Display formatting", function()
         expect(text).toContain("no BNet link")
     end)
 
+    it("should show '(on AltName)' when cluster is online on a different character", function()
+        local ns = loadAll()
+
+        -- Urazall is the tracked character we know them by
+        addFriend(ns, "Urazall", "Thrall", "WARRIOR", "Warrior", "TANK", nil, nil, 555, "Keith#1234")
+
+        -- Keith's account is online, but currently playing Gunnamcc (an
+        -- untracked alt). BNetLinker picks this up via gameAccounts.
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555,
+                battleTag = "Keith#1234",
+                isOnline = true,
+                gameAccounts = {
+                    { characterName = "Gunnamcc", realmName = "Thrall", className = "MAGE", areaName = "Dornogal" },
+                },
+            },
+        }
+
+        ns.FriendsViewer:Show()
+
+        local text = ns.FriendsViewer.rows[2].line1:GetText()
+        expect(text).toContain("Urazall")
+        expect(text).toContain("(on Gunnamcc)")
+    end)
+
+    it("should dedupe cluster online rows: only one tracked character per BNet shows as online", function()
+        local ns = loadAll()
+
+        -- Both characters tracked, both linked to the same BNet account.
+        addFriend(ns, "Urazall", "Thrall", "WARRIOR", "Warrior", "TANK", nil, nil, 555, "Keith#1234")
+        addFriend(ns, "Uraheal", "Thrall", "PRIEST", "Priest", "HEALER", nil, nil, 555, "Keith#1234")
+
+        -- Keith is online on an untracked alt (Gunnamcc).
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555, battleTag = "Keith#1234", isOnline = true,
+                gameAccountInfo = {
+                    clientProgram = "WoW", isOnline = true,
+                    characterName = "Gunnamcc", realmName = "Thrall",
+                    className = "Mage", areaName = "Dornogal",
+                },
+                gameAccounts = {},
+            },
+        }
+
+        ns.FriendsViewer:Show()
+
+        local onlineCount = ns.FriendsViewer:GetOnlineCount()
+        expect(onlineCount).toBe(1)
+
+        local list = ns.FriendsViewer:GetDisplayList()
+        -- Only one entry for that cluster should be online.
+        local onlineInCluster = 0
+        for _, e in ipairs(list) do
+            if e._isOnline and e.friend.bnetAccountID == 555 then
+                onlineInCluster = onlineInCluster + 1
+            end
+        end
+        expect(onlineInCluster).toBe(1)
+    end)
+
+    it("should prefer the tracked character that matches currentCharacter when deduping", function()
+        local ns = loadAll()
+
+        -- Both tracked; Keith is online on one of our tracked characters
+        -- (Uraheal), not on Urazall. Dedup should keep Uraheal online.
+        addFriend(ns, "Urazall", "Thrall", "WARRIOR", "Warrior", "TANK", nil, nil, 555, "Keith#1234")
+        addFriend(ns, "Uraheal", "Thrall", "PRIEST", "Priest", "HEALER", nil, nil, 555, "Keith#1234")
+
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555, battleTag = "Keith#1234", isOnline = true,
+                gameAccountInfo = {
+                    clientProgram = "WoW", isOnline = true,
+                    characterName = "Uraheal", realmName = "Thrall",
+                    className = "Priest", areaName = "Dornogal",
+                },
+                gameAccounts = {},
+            },
+        }
+
+        ns.FriendsViewer:Show()
+
+        local list = ns.FriendsViewer:GetDisplayList()
+        local onlineNR = nil
+        for _, e in ipairs(list) do
+            if e._isOnline and e.friend.bnetAccountID == 555 then
+                onlineNR = e.nameRealm
+            end
+        end
+        expect(onlineNR).toBe("uraheal-thrall")
+    end)
+
+    it("should NOT show '(on X)' when the online character matches the row's character", function()
+        local ns = loadAll()
+
+        addFriend(ns, "Urazall", "Thrall", "WARRIOR", "Warrior", "TANK", nil, nil, 555, "Keith#1234")
+
+        _G._mockBNetFriends = {
+            {
+                bnetAccountID = 555,
+                battleTag = "Keith#1234",
+                isOnline = true,
+                gameAccounts = {
+                    { characterName = "Urazall", realmName = "Thrall", className = "WARRIOR", areaName = "Dornogal" },
+                },
+            },
+        }
+
+        ns.FriendsViewer:Show()
+
+        local text = ns.FriendsViewer.rows[2].line1:GetText()
+        expect(text:find("(on ", 1, true) == nil).toBe(true)
+    end)
+
     it("should render a section header row above friend rows", function()
         local ns = loadAll()
 
